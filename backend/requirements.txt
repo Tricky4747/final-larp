@@ -2,3 +2,5 @@ fastapi
 uvicorn
 sse-starlette
 google-genai
+
+python-dotenv

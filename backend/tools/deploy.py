@@ -1,12 +1,13 @@
 
-"""Publish a self-contained HTML landing page using Netlify."""
+"""Deploy a self-contained HTML landing page to Netlify."""
 
-import io
+import asyncio
+import hashlib
 import logging
 import os
 import re
+import time
 import uuid
-import zipfile
 
 import httpx
 
@@ -16,93 +17,113 @@ NETLIFY_API = "https://api.netlify.com/api/v1"
 
 
 async def deploy_html(html: str, site_name: str) -> str:
-    """Deploy HTML to Netlify and return its HTTPS URL.
+    """Deploy HTML and return its public HTTPS URL when ready."""
 
-    Returns an empty string when deployment is unavailable or fails.
-    This allows the rest of the pipeline to continue in mock mode.
-    """
-    token = os.getenv("NETLIFY_AUTH_TOKEN")
+    token = os.getenv("NETLIFY_AUTH_TOKEN", "").strip()
 
-    # No token means the project is running without live deployment.
     if not token:
-        logger.info(
-            "Mock mode: deployment skipped because NETLIFY_AUTH_TOKEN "
-            "is not configured."
-        )
+        logger.info("Mock mode: Netlify token is not configured.")
         return ""
 
-    if not html or not html.strip():
-        logger.warning("Deployment skipped: HTML content is empty.")
+    if not html.strip():
+        logger.warning("Cannot deploy empty HTML.")
         return ""
 
     # Create a safe, unique site name.
     slug = re.sub(r"[^a-z0-9-]+", "-", site_name.lower())
-    slug = slug.strip("-")[:30] or "crewdesk-demo"
+    slug = slug.strip("-")[:25] or "crewdesk"
     slug = f"{slug}-{uuid.uuid4().hex[:6]}"
 
-    # Netlify accepts a ZIP containing the website files.
-    archive_buffer = io.BytesIO()
-
-    with zipfile.ZipFile(
-        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
-    ) as archive:
-        archive.writestr("index.html", html)
-
-    archive_bytes = archive_buffer.getvalue()
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-    }
+    headers = {"Authorization": f"Bearer {token}"}
+    html_bytes = html.encode("utf-8")
+    sha1 = hashlib.sha1(html_bytes).hexdigest()
 
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            # 1. Create a new Netlify site.
-            site_response = await client.post(
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # 1. Create a Netlify site.
+            response = await client.post(
                 f"{NETLIFY_API}/sites",
-                headers={**headers, "Content-Type": "application/json"},
+                headers=headers,
                 json={"name": slug},
             )
-            site_response.raise_for_status()
+            response.raise_for_status()
+            site = response.json()
 
-            site = site_response.json()
             site_id = site.get("id")
-
             if not site_id:
                 logger.warning("Netlify did not return a site ID.")
                 return ""
 
-            # 2. Upload the ZIP and start deployment.
-            deploy_response = await client.post(
+            # 2. Register index.html using its SHA-1 digest.
+            response = await client.post(
                 f"{NETLIFY_API}/sites/{site_id}/deploys",
-                headers={
-                    **headers,
-                    "Content-Type": "application/zip",
-                },
-                content=archive_bytes,
+                headers=headers,
+                json={"files": {"/index.html": sha1}},
             )
-            deploy_response.raise_for_status()
+            response.raise_for_status()
+            deploy = response.json()
 
-            deployment = deploy_response.json()
+            deploy_id = deploy.get("id")
+            if not deploy_id:
+                logger.warning("Netlify did not return a deploy ID.")
+                return ""
 
-            # Prefer HTTPS URLs supplied by Netlify.
+            # 3. Upload the HTML if Netlify requests this file.
+            required = deploy.get("required", [])
+
+            if sha1 in required:
+                response = await client.put(
+                    f"{NETLIFY_API}/deploys/{deploy_id}/files/index.html",
+                    headers={
+                        **headers,
+                        "Content-Type": "application/octet-stream",
+                    },
+                    content=html_bytes,
+                )
+                response.raise_for_status()
+
+            # 4. Wait for Netlify to finish processing the deploy.
+            deadline = time.monotonic() + 60
+
+            while time.monotonic() < deadline:
+                response = await client.get(
+                    f"{NETLIFY_API}/deploys/{deploy_id}",
+                    headers=headers,
+                )
+                response.raise_for_status()
+                deploy = response.json()
+                state = deploy.get("state", "")
+
+                if state == "ready":
+                    break
+
+                if state == "error":
+                    logger.warning("Netlify deployment failed.")
+                    return ""
+
+                await asyncio.sleep(2)
+            else:
+                logger.warning(
+                    "Netlify deployment did not become ready in time."
+                )
+                return ""
+
+            # 5. Return a URL only after the deployment is ready.
             url = (
-                deployment.get("deploy_ssl_url")
-                or deployment.get("ssl_url")
+                deploy.get("ssl_url")
+                or deploy.get("deploy_ssl_url")
                 or site.get("ssl_url")
-                or deployment.get("deploy_url")
-                or site.get("url")
                 or ""
             )
 
-            # Never report a missing or non-HTTPS URL as a live URL.
             if url.startswith("http://"):
                 url = "https://" + url[len("http://"):]
 
             if not url.startswith("https://"):
-                logger.warning("Netlify did not return a usable HTTPS URL.")
+                logger.warning("No HTTPS deployment URL was returned.")
                 return ""
 
-            logger.info("Netlify deployment submitted: %s", url)
+            logger.info("Netlify deployment is ready: %s", url)
             return url
 
     except httpx.HTTPStatusError as exc:
