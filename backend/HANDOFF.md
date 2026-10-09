@@ -65,11 +65,13 @@ CORS is open, so the frontend can call from any port.
 | `plan.md` | Planner | everyone | sections: Audience, Design philosophy, Marketing philosophy, Tasks |
 | `landing.md` | LandingPage | none | first line `<!-- live: URL -->`, then the HTML |
 | `leads.md` | LeadGen | Marketing, Control | **markdown table with exact header `\| name \| handle \| contact \| why \|`** |
-| `variants.md` | Marketing | Control | **4 lines, each starting `A:`, `B:`, `C:`, `D:`** followed by the DM text |
+| `variants.json` | Marketing | Control | **JSON object with A-D keys**, each containing its fixed `angle` and a `text` template with `{name}` and `{why}` placeholders |
 | `experiments.md` | Control | none | appended per round |
 | `lessons.md` | Control | Planner, Marketing | appended per round |
 
-Control parses `leads.md` and `variants.md` programmatically, so **the format rules above are not optional.**
+The Marketing agent validates and writes `variants.json` as structured JSON.
+The current Control flow gates on that file but still simulates sending and
+replies; it does not yet select variants or deliver real outreach.
 
 ## How agents work
 An agent is an `AgentSpec` (name, system prompt, files it `reads`, file it `writes`, mock output) in `agents/specs.py`. Generic `Agent.run()` does: status message → `gather()` → LLM call with the md files as context → `finalize()` → write md file → "Done" message.
@@ -140,12 +142,21 @@ Register it in the `CUSTOM` dict at the bottom of `agents/custom.py`. Control pi
 - Use a **safe public source**: Google Places API, a public business directory, or an API like Apollo/Hunter. Do **not** scrape logged-in social platforms; they ban fast and it can fail the demo. `handle` is whatever we can message (email, Telegram username, test IG account).
 
 ### 2. `tools/outreach.py`
-- `send_dm(lead, text) -> {"ok", "id"}`: for the demo, send only to **accounts you control** (a Telegram bot to your own chats or emails to test inboxes is the most reliable). Add a hard guard: refuse to send unless the lead's handle is in an `ALLOWED_TEST_HANDLES` list.
+- `send_dm(lead, text) -> {"ok", "id"}`: currently sends email through
+  `sender/` only to the exact inbox configured as `OUTREACH_TEST_EMAIL` in
+  repository-root `.env.local`. It is a dry run by default; live sending
+  requires `dry_run=False` and `compliance_confirmed=True`. Opt-outs and
+  incremental outcomes use the sender module's `sender/opt-outs.json` and
+  `sender/results.json`. It cannot DM Reddit users or turn handles into email
+  addresses.
 - `poll_replies() -> list[{"handle","variant","text"}]`: returns new replies. Keep a mapping of `handle → variant` when sending so replies can be attributed. If real replies are too slow for the demo, build a **persona simulator** here that replies with different hidden probabilities per variant (Person B's `simulate_reply` is a placeholder for this).
 
 ### 3. Agents
 - **LeadGen** (`LeadGenAgent.gather` already calls `find_leads`): prompt must output **only** the markdown table with exact header `| name | handle | contact | why |`, and `why` should be a one-line personalization hook per lead (used by Marketing).
-- **Marketing:** prompt must output four DM variants labelled `A:`, `B:`, `C:`, `D:` on separate lines with distinct angles: A pain-point, B social-proof, C curiosity question, D offer-first. Keep each under 60 words, personalized with `{name}` and `{why}` placeholders. It reads `lessons.md`, so in later rounds the winning style informs new variants.
+- **Marketing:** prompt outputs `variants.json` with keys A-D and angles
+  pain-point, social-proof, question, and offer-first. Each text is under 60
+  words and retains `{name}` and `{why}` placeholders. It reads `lessons.md`,
+  so in later rounds the winning style informs new variants.
 
 **Handoff to B:** once your tools work, tell Person B to replace `simulate_reply` in `control.py` with `send_dm` + `poll_replies`. Control already handles allocation (80/20), approval, and logging.
 

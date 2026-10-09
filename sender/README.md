@@ -119,6 +119,28 @@ appropriate lifecycle, authorize sending for the caller, apply current opt-out
 and consent checks, and run blocking Google client operations in a worker
 thread.
 
+The backend outreach adapter (`backend/tools/outreach.py`) is restricted to a
+single test inbox and defaults to dry-run. Set the address you control in the
+repository-root `.env.local` file:
+
+```dotenv
+OUTREACH_TEST_EMAIL=you-control-this-inbox@example.com
+```
+
+The adapter only sends when called with `dry_run=False` and
+`compliance_confirmed=True`; it rejects any other recipient, respects
+`sender/opt-outs.json`, and saves results to `sender/results.json`. It expects
+an email address in the outreach record and cannot send a Reddit DM or derive
+an email from a public username. Pass `variant="A"` (or `"B"`, `"C"`, `"D"`)
+instead of message text to use the matching text in
+`backend/workspace/variants.json`; `{name}` and `{why}` are filled from the
+lead record. The backend pipeline generates that file when Marketing runs.
+To run only the offline adapter tests, from the `backend/` directory use:
+
+```powershell
+python -m unittest tools.test_outreach tools.test_leads -v
+```
+
 ## Tests
 
 The `unittest` suite uses mocked Gmail API services and synthetic OAuth

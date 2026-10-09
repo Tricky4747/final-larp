@@ -18,7 +18,12 @@ class Workspace:
         with open(self.root / name, "a") as f: f.write("\n" + content)
         await self._announce(name, author, "updated")
 
-    def list(self): return sorted(p.name for p in self.root.glob("*.md"))
+    def list(self):
+        files = [path.name for path in self.root.glob("*.md")]
+        variants = self.root / "variants.json"
+        if variants.is_file():
+            files.append(variants.name)
+        return sorted(files)
 
     async def _announce(self, name, author, verb):
         if self.bus:

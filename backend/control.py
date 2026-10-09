@@ -79,7 +79,7 @@ class Control:
             return
         await self.agents["marketing"].run("Write DM variants.")
         for v in "ABCD": self.exp.register(v)
-        if not await self.gate("variants", "Approve these DM variants?", "marketing", file="variants.md"):
+        if not await self.gate("variants", "Approve these DM variants?", "marketing", file="variants.json"):
             return
         await self.run_round(10)
 
@@ -88,7 +88,7 @@ class Control:
         plan = self.exp.allocate(n)
         split = ", ".join(f"{v}: {plan.count(v)}" for v in sorted(set(plan)))
         if not await self.gate(f"round{self.round}", f"Round {self.round}: send {n} DMs? Split by variant: {split}",
-                               "marketing", file="variants.md"):
+                               "marketing", file="variants.json"):
             return False
         for v in plan:
             self.exp.record(v, replied=await self.simulate_reply(v))  # swap for real replies later
