@@ -109,6 +109,38 @@ class LandingPageAgent(Agent):
             out.strip(),
             flags=re.MULTILINE | re.IGNORECASE,
         ).strip()
+        
+        lower_html = html.lower()
+
+        required_tags = [
+            "<!doctype html",
+            "<html",
+            "<head",
+            "</head>",
+            "<body",
+            "</body>",
+            "</html>",
+        ]
+
+        styles_complete = (
+            lower_html.count("<style")
+            == lower_html.count("</style>")
+        )
+
+        if (
+            not all(tag in lower_html for tag in required_tags)
+            or not styles_complete
+        ):
+            await self.bus.post(
+                Message(
+                    sender=self.name,
+                    text=(
+                        "Landing page HTML is incomplete. "
+                        "It was not deployed; regenerate the page."
+                    ),
+                )
+            )
+            return f"<!-- live: UNDEPLOYED -->\n{html}"
 
         # Create a name for the deployed website.
         idea = self.ws.read("idea.md").replace("# Idea", "").strip()
