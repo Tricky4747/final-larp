@@ -11,7 +11,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from email.message import EmailMessage
-from email.policy import SMTP as SMTP_POLICY
+from email.policy import EmailPolicy
 from pathlib import Path
 from typing import Any, Callable
 
@@ -227,7 +227,8 @@ def _send_with_service(
     gmail_service: Any,
     subject: str,
 ) -> dict[str, Any]:
-    email_message = EmailMessage(policy=SMTP_POLICY)
+    _NO_WRAP_POLICY = EmailPolicy(utf8=True, max_line_length=None, linesep="\r\n")
+    email_message = EmailMessage(policy=_NO_WRAP_POLICY)
     email_message["To"] = email
     email_message["Subject"] = subject
     email_message.set_content(message, subtype="plain", charset="utf-8")

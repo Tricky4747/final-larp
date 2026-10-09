@@ -169,12 +169,12 @@ class Control:
                 try:
                     from tools.outreach import send_dm
                     send_payload = {
-                        "name": lead_name,
+                        "name": "there",  # use generic greeting since page titles make bad salutations
                         "email": target_email,
                         "why": clean_why or "your website presence",
                         "contact": target_email,
                     }
-                    subject = f"[{lead_name}] Regarding your website growth"
+                    subject = "Regarding your website growth"
                     res = await send_dm(
                         send_payload,
                         variant=v,
