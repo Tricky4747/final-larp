@@ -6,7 +6,7 @@ export default function ChatListItem({ channel, onPick }: { channel: string; onP
   const active = useStore((s) => s.active === channel);
   const unread = useStore((s) => !!s.unread[channel]);
   const last = useStore((s) => { for (let i = s.messages.length - 1; i >= 0; i--) if (s.messages[i].channel === channel) return s.messages[i]; return null; });
-  const label = channel === "group" ? "Group" : channel;
+  const label = channel === "group" ? "Group" : channel === "founder" ? "Founder" : channel;
   const color = channel === "group" ? "#e8b84a" : agentColor(channel);
   return (
     <button onClick={() => { useStore.getState().setActive(channel); onPick(); }}
@@ -16,7 +16,7 @@ export default function ChatListItem({ channel, onPick }: { channel: string; onP
         <span className="block text-sm font-medium">{label}</span>
         <span className="block truncate text-xs text-mute">{last ? last.text : "No messages yet"}</span>
       </span>
-      {unread && <span aria-label="Unread messages" className="h-2.5 w-2.5 rounded-full bg-amber" />}
+      {unread && <span aria-label="Unread messages" className="h-2.5 w-2.5 animate-pulse rounded-full bg-amber" />}
     </button>
   );
 }
