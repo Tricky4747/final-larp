@@ -25,7 +25,7 @@ export const MOCK_MESSAGES: Message[] = [
   m("Planner", "Planner", "Drafting plan...", "status"),
   m("Planner", "group", "Plan is ready.", "message"),
   m("Planner", "group", "Planner updated plan.md", "file_update", { file: "plan.md" }),
-  m("Control", "group", "Approve deploying the landing page?", "approval_request", { id: "ap000001" }),
+  m("Control", "group", "Approve deploying the landing page?", "approval_request", { id: "ap000001", stage: "plan", file: "plan.md" }),
   m("LandingPage", "group", "Landing page is live.", "message", { url: "https://example.netlify.app" }),
   m("LeadGen", "LeadGen", "Finding leads...", "status"),
   m("LeadGen", "group", "20 leads found.", "message"),

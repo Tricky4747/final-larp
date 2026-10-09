@@ -6,22 +6,23 @@ type S = {
   active: string; unread: Record<string, boolean>;
   agents: string[]; files: string[]; fileContents: Record<string, string>;
   flashing: Record<string, number>; openFile: string | null; tab: "files" | "experiments";
-  approvals: Record<string, "approved" | "rejected">; experiments: Experiments; connected: boolean;
+  approvals: Record<string, "approved" | "rejected" | "changes">; ideaSent: boolean; experiments: Experiments; connected: boolean;
   addMessage: (m: Message) => boolean;
   setActive: (c: string) => void;
   set: (p: Partial<S>) => void;
   flash: (f: string) => void;
   setFile: (name: string, content: string) => void;
-  setApproval: (id: string, v: "approved" | "rejected") => void;
+  setApproval: (id: string, v: "approved" | "rejected" | "changes") => void;
 };
 
 export const useStore = create<S>((set, get) => ({
   messages: [], seen: {}, active: "group", unread: {}, agents: [], files: [], fileContents: {},
-  flashing: {}, openFile: null, tab: "files", approvals: {}, experiments: {}, connected: false,
+  flashing: {}, openFile: null, tab: "files", approvals: {}, ideaSent: false, experiments: {}, connected: false,
   addMessage: (m) => {
     if (get().seen[m.id]) return false;           // history replays on reconnect: dedupe by id
     set((s) => ({
       seen: { ...s.seen, [m.id]: true },
+      ideaSent: s.ideaSent || m.sender === "founder" || m.text.startsWith("Idea received"),
       messages: [...s.messages, m].sort((a, b) => a.ts - b.ts),
       unread: m.channel !== s.active && m.sender !== "founder" ? { ...s.unread, [m.channel]: true } : s.unread,
     }));
@@ -40,5 +41,13 @@ export const useStore = create<S>((set, get) => ({
 export const selectChannels = (s: S) => {
   const set = new Set<string>(["group", ...s.agents]);
   s.messages.forEach((m) => set.add(m.channel));   // unseen channels get a chat on the fly
-  return Array.from(set);
+  const latest = new Map<string, number>();
+  s.messages.forEach((m) => latest.set(m.channel, Math.max(latest.get(m.channel) ?? 0, m.ts)));
+  return Array.from(set).sort((a, b) => (latest.get(b) ?? 0) - (latest.get(a) ?? 0) || a.localeCompare(b));
+};
+
+/** Only the newest approval card can still be answered; older ones were resolved or lost on a backend restart. */
+export const selectLatestApprovalId = (s: S) => {
+  for (let i = s.messages.length - 1; i >= 0; i--) if (s.messages[i].kind === "approval_request") return s.messages[i].meta.id;
+  return undefined;
 };

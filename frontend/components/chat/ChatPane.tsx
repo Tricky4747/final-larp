@@ -10,7 +10,7 @@ export default function ChatPane({ onChats, onPanel }: { onChats: () => void; on
     <>
       <header className="flex items-center gap-3 border-b border-line bg-panel px-4 py-3">
         <button className="md:hidden text-sm text-mute" onClick={onChats}>Chats</button>
-        <h2 className="flex-1 text-sm font-semibold">{active === "group" ? "Group" : active}</h2>
+        <h2 className="flex-1 text-sm font-semibold">{active === "group" ? "Group" : active === "founder" ? "Founder" : active}</h2>
         <button className="lg:hidden text-sm text-mute" onClick={onPanel}>Files</button>
       </header>
       <PipelineStrip />
