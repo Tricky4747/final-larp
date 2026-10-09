@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import dataclass, field
 from llm import complete
 from bus import Bus, Message
+from memory import search
 from workspace import Workspace
 
 @dataclass
@@ -24,7 +25,30 @@ class Agent:
         await self.bus.post(Message(sender=self.name, text=text, channel=channel, **kw))
 
     def build_context(self, task: str, extra: str = "") -> str:
-        parts = [f"## {f}\n{self.ws.read(f)}" for f in self.spec.reads if self.ws.read(f)]
+        parts = []
+        retrieved_files = {}
+        for file in self.spec.reads:
+            content = self.ws.read(file)
+            if not content:
+                continue
+            if file in ("lessons.md", "validation.md") and len(content) > 2000:
+                hits = search(task, k=3, file=file)
+                if hits:
+                    retrieved_files[file] = len(hits)
+                    content = "\n\n".join(hit["text"] for hit in hits)
+            parts.append(f"## {file}\n{content}")
+        if retrieved_files:
+            retrieved = sum(retrieved_files.values())
+            if len(retrieved_files) == 1:
+                file = next(iter(retrieved_files))
+                source = "lessons" if file == "lessons.md" else "validation reports"
+                notice = f"{self.name} retrieved {retrieved} {source} from memory."
+            else:
+                notice = f"{self.name} retrieved {retrieved} context chunks from memory."
+            asyncio.create_task(self.say(
+                notice,
+                kind="status",
+            ))
         if extra:
             parts.append(f"## TOOL RESULTS\n{extra}")
         return "\n\n".join(parts) + f"\n\n## YOUR TASK\n{task}"

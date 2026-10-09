@@ -13,11 +13,17 @@ class Workspace:
     async def write(self, name: str, content: str, author: str):
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / name).write_text(content)
+        if name.endswith(".md"):
+            from memory import index
+            index(name, content)
         await self._announce(name, author, "wrote")
 
     async def append(self, name: str, content: str, author: str):
         self.root.mkdir(parents=True, exist_ok=True)
         with open(self.root / name, "a") as f: f.write("\n" + content)
+        if name.endswith(".md"):
+            from memory import index
+            index(name, self.read(name))
         await self._announce(name, author, "updated")
 
     def list(self):

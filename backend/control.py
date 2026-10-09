@@ -5,7 +5,7 @@ from agents.specs import SPECS
 from bus import Bus, Message
 from workspace import Workspace
 from experiments import Experiments
-from llm import complete
+from llm import complete, parse_json
 from parsing import parse_variants
 
 class Control:
@@ -61,6 +61,45 @@ class Control:
             await self.revise(agent_key, fb)
         return True
 
+    async def choose_tasks(self) -> list[dict[str, str]]:
+        """Ask Control to select the post-plan tasks, with a safe default."""
+        default = [
+            {"agent": "landing", "task": "Build the landing page."},
+            {"agent": "leads", "task": "Find target leads."},
+        ]
+        prompt = (
+            "Choose the tasks to run after the approved plan. Return only JSON in this "
+            "shape: {\"tasks\": [{\"agent\": \"landing\", \"task\": \"...\"}, "
+            "{\"agent\": \"leads\", \"task\": \"...\"}]}. "
+            "Use exactly one landing task and one leads task; they can run in parallel. "
+            f"\n\nAPPROVED PLAN:\n{self.ws.read('plan.md')}"
+        )
+        try:
+            decision = parse_json(await complete(
+                "You are Control, the task orchestrator.",
+                prompt,
+                mock=json.dumps({"tasks": default}),
+                max_tokens=500,
+            ))
+            tasks = decision.get("tasks")
+            if not isinstance(tasks, list):
+                raise ValueError("tasks must be a list")
+            normalized = []
+            for item in tasks:
+                if not isinstance(item, dict):
+                    raise ValueError("each task must be an object")
+                agent_key = item.get("agent")
+                task = item.get("task")
+                if agent_key not in self.agents or not isinstance(task, str) or not task.strip():
+                    raise ValueError("task contains an unknown agent or empty instruction")
+                normalized.append({"agent": agent_key, "task": task.strip()})
+            if {item["agent"] for item in normalized} != {"landing", "leads"}:
+                raise ValueError("Control must select landing and leads")
+            return normalized
+        except (Exception, json.JSONDecodeError) as exc:
+            await self.say(f"Control task plan unavailable ({exc}); using the default sequence.", kind="status")
+            return default
+
     async def run_pipeline(self, idea: str):
         await self.ws.write("idea.md", f"# Idea\n{idea}", "founder")
         await self.say("Idea received. Starting validation.")
@@ -72,11 +111,14 @@ class Control:
         if not await self.gate("plan", "Here's the plan. Proceed to build?", "planner", file="plan.md"):
             return
 
-        await self.say("Plan approved. Dispatching landing page + lead gen in parallel.")
-        await asyncio.gather(
-            self.agents["landing"].run("Build the landing page."),
-            self.agents["leads"].run("Find target leads."),
-        )
+        tasks = await self.choose_tasks()
+        await self.say("Plan approved. Control dispatching " + ", ".join(
+            f"{task['agent']}" for task in tasks
+        ) + " in parallel.")
+        await asyncio.gather(*(
+            self.agents[task["agent"]].run(task["task"])
+            for task in tasks
+        ))
         landing_content = self.ws.read("landing.md")
 
         if "<!-- live: UNDEPLOYED -->" in landing_content:

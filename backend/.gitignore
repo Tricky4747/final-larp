@@ -1,4 +1,5 @@
 workspace/
 experiments.db
 __pycache__/
+.memory/
 .env
