@@ -18,6 +18,14 @@ chat = ChatRouter(ctl)
 async def idea(body: dict):
     chat.start_pipeline(body["idea"]); return {"ok": True}
 
+@app.post("/round")
+async def round_endpoint(body: dict | None = None):
+    body = body or {}
+    n = max(1, min(int(body.get("n", 10)), 20))
+    round_number = ctl.round + 1
+    asyncio.create_task(ctl.next_round(n))
+    return {"ok": True, "round": round_number, "leads": n}
+
 @app.post("/chat")
 async def chat_endpoint(body: dict):
     channel = body.get("channel", "group")

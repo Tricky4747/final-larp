@@ -1,6 +1,9 @@
 """Single LLM entry point (Gemini). Falls back to canned output when no API key (mock mode)."""
 import os, json, asyncio
+from pathlib import Path
+from dotenv import load_dotenv
 
+load_dotenv(Path(__file__).resolve().parent / ".env")
 MODEL = os.getenv("MODEL", "gemini-3.5-flash-lite")   # override via env, e.g. MODEL=gemini-2.5-pro
 _client = None
 _sem = asyncio.Semaphore(3)
