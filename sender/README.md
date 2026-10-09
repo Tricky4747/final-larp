@@ -39,7 +39,9 @@ and remove its access.
 ## Input, opt-outs, and compliance
 
 `sender/emails.json` is the sample input. The JSON root must be a list, and
-each item must contain exactly a valid `email` and a non-empty `message`. The
+each item must contain exactly a non-empty `name`, a valid `email`, and a
+non-empty `message`. The name is retained for backend use and displayed in the
+dry-run preview; it does not replace or alter the provided message text. The
 entire file is validated before OAuth or any send request begins.
 
 `sender/opt-outs.json` contains addresses that must not be contacted. Keep it

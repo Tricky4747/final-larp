@@ -69,15 +69,19 @@ def validate_records(data: object) -> list[dict[str, str]]:
     records: list[dict[str, str]] = []
     for index, item in enumerate(data):
         prefix = f"Item {index + 1}"
-        if not isinstance(item, dict) or set(item) != {"email", "message"}:
+        if not isinstance(item, dict) or set(item) != {"email", "message", "name"}:
             raise InputValidationError(
-                f"{prefix} must contain exactly the 'email' and 'message' fields."
+                f"{prefix} must contain exactly the 'email', 'message', and "
+                "'name' fields."
             )
         address = validate_email_address(item["email"], f"{prefix} email")
         message = item["message"]
         if not isinstance(message, str) or not message.strip():
             raise InputValidationError(f"{prefix} message must be a non-empty string.")
-        records.append({"email": address, "message": message})
+        name = item["name"]
+        if not isinstance(name, str) or not name.strip():
+            raise InputValidationError(f"{prefix} name must be a non-empty string.")
+        records.append({"email": address, "message": message, "name": name.strip()})
     return records
 
 
@@ -470,7 +474,10 @@ def main(argv: list[str] | None = None) -> int:
                 if record["email"].casefold() in suppressions
                 else "WOULD SEND"
             )
-            print(f"{state} to {record['email']} | Subject: {args.subject}")
+            print(
+                f"{state} to {record['name']} <{record['email']}> "
+                f"| Subject: {args.subject}"
+            )
             print(record["message"])
             print()
         print(f"Validated {len(records)} email(s); no email was sent.")
