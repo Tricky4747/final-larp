@@ -3,7 +3,10 @@
     "careerguidance",
     "careeradvice",
     "careers",
-    "getemployed"
+    "getemployed",
+    "smallbusiness",
+    "Entrepreneur",
+    "startups"
   ],
   "intent_terms": [
     "advice",
