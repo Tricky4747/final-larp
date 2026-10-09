@@ -296,9 +296,9 @@ SPECS = {
         mock="| name | handle | fit |\n|---|---|---|\n| Acme Bakery | @acme | local, no site |"),
     "marketing": AgentSpec(
         name="Marketing",
-        system_prompt="Write 4 DM variants (pain-point, social-proof, question, offer-first), labelled A-D, using the plan and lessons.",
+        system_prompt="Write DM variants A-D plus 1-2 challenger variants E-F, each on its own line, using the plan and lessons. Label A pain-point, B social-proof, C question, D offer-first. Keep each under 60 words and personalize with {name} and {why}.",
         reads=["plan.md", "leads.md", "lessons.md"], writes="variants.md",
-        mock="A: pain-point...\nB: social-proof...\nC: question...\nD: offer-first..."),
+        mock="A: pain-point...\nB: social-proof...\nC: question...\nD: offer-first...\nE: curious challenger...\nF: proof challenger..."),
 }
 
 # every agent sees founder feedback (written by Control.revise)

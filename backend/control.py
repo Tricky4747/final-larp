@@ -1,10 +1,12 @@
 """Control agent: the orchestrator. Runs the pipeline, dispatches tasks, gates on approval, loops."""
-import asyncio, uuid
+import asyncio, json, uuid
 from agent import Agent
 from agents.specs import SPECS
 from bus import Bus, Message
 from workspace import Workspace
 from experiments import Experiments
+from llm import complete
+from parsing import parse_variants
 
 class Control:
     def __init__(self, ws: Workspace, bus: Bus, auto_approve: bool = True):
@@ -123,12 +125,66 @@ class Control:
             return False
         for v in plan:
             self.exp.record(v, replied=await self.simulate_reply(v))  # swap for real replies later
-        s = self.exp.stats(); w = self.exp.winner(min_sends=1)
-        await self.say(f"Round {self.round} done. Leading variant: {w}. Stats: {s}")
+        s = self.exp.stats(); w = self.exp.winner()
+        leader = f"Leading variant: {w}." if w else "Not enough data yet to name a winner."
+        await self.say(f"Round {self.round} done. {leader} Stats: {s}")
         await self.ws.append("experiments.md", f"- {s}", "Control")
-        await self.ws.append("lessons.md", f"- Variant {w} leads after round {self.round}.", "Control")
+        await self.learn_round(s)
         return True
+
+    async def learn_round(self, stats: dict):
+        variants = parse_variants(self.ws.read("variants.md"))
+        variant_context = "\n".join(f"{key}: {text}" for key, text in variants.items())
+        prompt = ("Analyze this outreach experiment. Compare the variant wording with the "
+                  "reply rates and explain the likely reason for the result. Write exactly "
+                  "2-3 sentences of durable lessons for the next marketing round.\n\n"
+                  f"VARIANTS:\n{variant_context}\n\nSTATS:\n{json.dumps(stats, sort_keys=True)}")
+        fallback = self._fallback_lesson(variants, stats)
+        try:
+            lesson = await complete("You are the learning lead for an outreach experiment.",
+                                    prompt, mock=fallback, max_tokens=500)
+        except Exception:
+            lesson = fallback
+        await self.ws.append("lessons.md", lesson.strip(), "Control")
+        await self.say(f"Learned from round {self.round}: {lesson.strip()}")
+
+        winner = self.exp.winner()
+        if winner:
+            candidates = {key: value for key, value in self.exp.active_stats().items()
+                          if key != winner and value["sends"]}
+            if candidates:
+                loser = min(candidates, key=lambda key: (candidates[key]["rate"], -candidates[key]["sends"]))
+                self.exp.retire(loser)
+                await self.say(f"Retiring variant {loser}; keeping {winner} as the current winner.")
+
+        output = await self.agents["marketing"].run(
+            "Use the new lessons to refresh the DM set. Keep A-D, and generate 1-2 new "
+            "challenger variants labelled E and F for the explore slice."
+        )
+        refreshed = parse_variants(output)
+        challengers = {key: text for key, text in refreshed.items() if key in "EF"}
+        if not challengers:
+            current = parse_variants(self.ws.read("variants.md"))
+            current.update({"E": "A new curiosity-led challenger for {name}: {why}",
+                            "F": "A concise proof-led challenger for {name}: {why}"})
+            await self.ws.write("variants.md", "\n".join(f"{key}: {text}" for key, text in current.items()), "Control")
+            challengers = {key: current[key] for key in "EF"}
+        for variant in challengers:
+            self.exp.register(variant)
+        await self.say(f"Marketing added challenger variants: {', '.join(sorted(challengers))}.")
+
+    @staticmethod
+    def _fallback_lesson(variants: dict[str, str], stats: dict) -> str:
+        active = {key: value for key, value in stats.items() if value["sends"]}
+        if not active:
+            return "The first round does not provide enough reply data to identify a reliable pattern. Keep testing distinct angles before shifting the majority of sends."
+        best = max(active, key=lambda key: active[key]["rate"])
+        worst = min(active, key=lambda key: active[key]["rate"])
+        return (f"Variant {best} currently leads at {active[best]['rate']:.0%}, while "
+                f"variant {worst} trails at {active[worst]['rate']:.0%}; the wording differences "
+                "should guide the next challenger angles. More sends are needed before treating this as a stable preference.")
 
     async def simulate_reply(self, variant: str) -> bool:
         import random
-        return random.random() < {"A": .05, "B": .10, "C": .20, "D": .08}[variant]  # hidden "true" rates
+        return random.random() < {"A": .05, "B": .10, "C": .20, "D": .08,
+                                  "E": .14, "F": .11}[variant]  # hidden "true" rates
