@@ -3,18 +3,27 @@ import asyncio, json
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
-from bus import Bus
+from bus import Bus, Message
 from workspace import Workspace
 from control import Control
+from chat import ChatRouter
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 bus = Bus(); ws = Workspace(bus=bus); ctl = Control(ws, bus, auto_approve=False)
 
+chat = ChatRouter(ctl)
+
 @app.post("/idea")
 async def idea(body: dict):
-    asyncio.create_task(ctl.run_pipeline(body["idea"])); return {"ok": True}
+    chat.start_pipeline(body["idea"]); return {"ok": True}
 
+@app.post("/chat")
+async def chat_endpoint(body: dict):
+    channel = body.get("channel", "group")
+    await bus.post(Message(sender="founder", text=body["text"], channel=channel))
+    chat.spawn(chat.handle(body["text"], channel)); return {"ok": True}
+    
 @app.get("/stream")                      # SSE: every Message as JSON
 async def stream():
     async def gen():
