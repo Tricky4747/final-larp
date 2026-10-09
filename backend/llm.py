@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent / ".env")
 MODEL = os.getenv("MODEL", "gemini-3.5-flash-lite")   # override via env, e.g. MODEL=gemini-2.5-pro
 _client = None
+_sem = asyncio.Semaphore(3)
 
 def _api_key():
     return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -22,12 +23,19 @@ async def complete(system: str, user: str, mock: str = "(mock output)", max_toke
         await asyncio.sleep(0.3)  # fake latency so the UI feels alive
         return mock
     from google.genai import types
-    resp = await _get_client().aio.models.generate_content(
-        model=MODEL,
-        contents=user,
-        config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens),
-    )
-    return resp.text or ""
+    async with _sem:
+        for attempt in range(4):
+            try:
+                resp = await _get_client().aio.models.generate_content(
+                    model=MODEL,
+                    contents=user,
+                    config=types.GenerateContentConfig(system_instruction=system, max_output_tokens=max_tokens),
+                )
+                return resp.text or ""
+            except Exception:
+                if attempt == 3:
+                    raise
+                await asyncio.sleep(2 ** attempt)
 
 def parse_json(text: str):
     text = text.replace("```json", "").replace("```", "").strip()

@@ -48,6 +48,7 @@ Meaning of `channel`: **status** messages ("On it...") go to the agent's own cha
 | Method + path | Body | Returns |
 |---|---|---|
 | `POST /idea` | `{"idea": "..."}` | `{"ok": true}` and starts the pipeline in the background |
+| `POST /round` | `{"n": 10}` (optional) | `{"ok": true, "round": N, "leads": X}` and starts the next approval-gated round |
 | `GET /stream` | none | SSE; each event `data:` is one Message JSON. **Replays full history on connect**, so dedupe by `id` |
 | `GET /agents` | none | `[{"name": "Control"}, {"name": "Validation"}, ...]` for the sidebar |
 | `GET /files` | none | `["plan.md", "leads.md", ...]` |

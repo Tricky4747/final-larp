@@ -98,11 +98,27 @@ class Control:
             return
         await self.run_round(10)
 
+    async def next_round(self, n: int = 10) -> bool:
+        """Start one founder-approved outreach round from an API request."""
+        return await self.run_round(n)
+
     async def run_round(self, n: int) -> bool:
         self.round += 1
         plan = self.exp.allocate(n)
         split = ", ".join(f"{v}: {plan.count(v)}" for v in sorted(set(plan)))
-        if not await self.gate(f"round{self.round}", f"Round {self.round}: send {n} DMs? Split by variant: {split}",
+        stats = self.exp.stats()
+        winner = self.exp.winner()
+        if winner:
+            explored = len(plan) - plan.count(winner)
+            tested = len({v for v in plan if v != winner})
+            rate = stats[winner]["rate"] * 100
+            narrative = (f"Variant {winner} leads at {rate:.0f}%. Sending "
+                         f"{plan.count(winner) / n:.0%} of this batch as {winner}, "
+                         f"testing {tested} new angles with the rest.")
+        else:
+            narrative = f"No variant has enough data yet. Current split: {split}."
+        question = f"Send round {self.round} to {n} leads? {narrative}"
+        if not await self.gate(f"round{self.round}", question,
                                "marketing", file="variants.md"):
             return False
         for v in plan:
