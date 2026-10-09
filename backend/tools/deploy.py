@@ -8,8 +8,10 @@ import os
 import re
 import time
 import uuid
+from pathlib import Path
 
 import httpx
+from dotenv import load_dotenv
 
 from pathlib import Path
 from dotenv import load_dotenv
@@ -28,6 +30,7 @@ for _p in (
 logger = logging.getLogger(__name__)
 
 NETLIFY_API = "https://api.netlify.com/api/v1"
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 
 async def deploy_html(html: str, site_name: str) -> str:

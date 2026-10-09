@@ -3,5 +3,6 @@ uvicorn
 sse-starlette
 google-genai
 chromadb
+ddgs
 
 python-dotenv

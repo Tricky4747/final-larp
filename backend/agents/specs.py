@@ -59,9 +59,11 @@ SPECS = {
     Verdict: GO
     Verdict: NO-GO
 
-    Use GO when evidence supports moving to the next testing stage.
-    Use NO-GO when the current idea should not proceed without
-    substantial revision or when available evidence is insufficient.
+    Use GO when the idea has no evidence-based disqualifying risk and
+    should move to the next testing stage. GO does not mean demand is
+    validated; mark low-confidence conclusions clearly.
+    Use NO-GO only when the available evidence indicates that the
+    current idea should not proceed without substantial revision.
     Return only the Markdown report.
     """,
         reads=["idea.md"],
