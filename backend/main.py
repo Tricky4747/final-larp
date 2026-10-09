@@ -39,4 +39,4 @@ def experiments(): return ctl.exp.stats()
 
 @app.post("/approve/{aid}")
 async def approve(aid: str, body: dict):
-    await ctl.approve(aid, body.get("ok", True)); return {"ok": True}
+    await ctl.approve(aid, body.get("ok", True), body.get("feedback", "")); return {"ok": True}
