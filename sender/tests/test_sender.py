@@ -24,8 +24,8 @@ from sender.sender import _build_gmail_service
 
 RECIPIENT = "recipient@example.com"
 RECORDS = [
-    {"email": RECIPIENT, "message": "Hello, recipient."},
-    {"email": "second@example.com", "message": "A second message."},
+    {"name": "First Recipient", "email": RECIPIENT, "message": "Hello, recipient."},
+    {"name": "Second Recipient", "email": "second@example.com", "message": "A second message."},
 ]
 
 
@@ -88,10 +88,11 @@ class SenderTests(unittest.TestCase):
                 load_records(file_path)
 
             invalid_data = [
-                {"email": "bad", "message": "Hello"},
-                {"email": RECIPIENT},
-                {"email": RECIPIENT, "message": "   "},
-                {"email": RECIPIENT, "message": "Hello", "extra": True},
+                {"name": "Recipient", "email": "bad", "message": "Hello"},
+                {"name": "Recipient", "email": RECIPIENT},
+                {"name": "Recipient", "email": RECIPIENT, "message": "   "},
+                {"name": "Recipient", "email": RECIPIENT, "message": "Hello", "extra": True},
+                {"name": " ", "email": RECIPIENT, "message": "Hello"},
             ]
             for item in invalid_data:
                 with self.subTest(item=item):
@@ -256,7 +257,10 @@ class SenderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(InputValidationError):
                 send_batch(
-                    [RECORDS[0], {"email": "invalid", "message": "Hello"}],
+                    [
+                        RECORDS[0],
+                        {"name": "Invalid", "email": "invalid", "message": "Hello"},
+                    ],
                     results_path=Path(directory) / "results.json",
                     service_factory=service_factory,
                     compliance_confirmed=True,

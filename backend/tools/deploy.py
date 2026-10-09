@@ -11,6 +11,20 @@ import uuid
 
 import httpx
 
+from pathlib import Path
+from dotenv import load_dotenv
+
+for _p in (
+    Path(__file__).resolve().parent / ".env",
+    Path(__file__).resolve().parent / ".env.local",
+    Path(__file__).resolve().parents[1] / ".env",
+    Path(__file__).resolve().parents[1] / ".env.local",
+    Path(__file__).resolve().parents[2] / ".env",
+    Path(__file__).resolve().parents[2] / ".env.local",
+):
+    if _p.is_file():
+        load_dotenv(_p)
+
 logger = logging.getLogger(__name__)
 
 NETLIFY_API = "https://api.netlify.com/api/v1"

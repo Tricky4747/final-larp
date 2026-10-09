@@ -1,0 +1,33 @@
+{
+  "subreddits": [
+    "careerguidance",
+    "careeradvice",
+    "careers",
+    "getemployed",
+    "smallbusiness",
+    "Entrepreneur",
+    "startups"
+  ],
+  "intent_terms": [
+    "advice",
+    "guidance",
+    "recommendation",
+    "recommendations",
+    "what should I",
+    "how can I",
+    "looking for",
+    "need help",
+    "seeking"
+  ],
+  "topic_terms": [
+    "career",
+    "job",
+    "skill",
+    "skills",
+    "learn",
+    "training",
+    "upskill",
+    "professional development"
+  ],
+  "limit_per_feed": 100
+}
