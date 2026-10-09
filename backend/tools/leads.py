@@ -27,6 +27,10 @@ class LeadSearchError(RuntimeError):
     """Raised when Reddit source configuration or all configured feeds fail."""
 
 
+class LeadSourceUnavailable(LeadSearchError):
+    """Raised when no configured public RSS feed could be read."""
+
+
 class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -196,7 +200,7 @@ def _discover_leads(
 
     if successful_feeds == 0:
         detail = "; ".join(failures) if failures else "No feeds were configured."
-        raise LeadSearchError(f"No Reddit feeds could be read. {detail}")
+        raise LeadSourceUnavailable(f"No Reddit feeds could be read. {detail}")
     _save_results(results)
     return results
 
@@ -216,4 +220,10 @@ async def find_leads(query: str, location: str, n: int = 20) -> list[dict[str, s
         raise ValueError("location must be non-empty text.")
     if isinstance(n, bool) or not isinstance(n, int) or n < 1:
         raise ValueError("n must be a positive integer.")
-    return await asyncio.to_thread(_discover_leads, query.strip(), location.strip(), n)
+    try:
+        return await asyncio.to_thread(
+            _discover_leads, query.strip(), location.strip(), n
+        )
+    except LeadSourceUnavailable as exc:
+        logger.warning("Lead discovery unavailable: %s", exc)
+        return []

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tools.leads import _discover_leads, find_leads
+from tools.leads import LeadSourceUnavailable, _discover_leads, find_leads
 
 
 ATOM_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -74,6 +74,14 @@ class RedditLeadTests(unittest.TestCase):
     def test_rejects_invalid_limit(self):
         with self.assertRaisesRegex(ValueError, "positive integer"):
             _discover_leads("query", "Anywhere", 0, opener=lambda *_args, **_kwargs: FakeResponse())
+
+    def test_async_entrypoint_returns_empty_on_feed_failures(self):
+        with patch(
+            "tools.leads._discover_leads",
+            side_effect=LeadSourceUnavailable("all feeds unavailable"),
+        ):
+            result = asyncio.run(find_leads("skill coaching", "Anywhere", 3))
+        self.assertEqual(result, [])
 
     def test_successful_search_saves_current_results_atomically(self):
         config = {

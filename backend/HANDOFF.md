@@ -69,9 +69,13 @@ CORS is open, so the frontend can call from any port.
 | `experiments.md` | Control | none | appended per round |
 | `lessons.md` | Control | Planner, Marketing | appended per round |
 
-The Marketing agent validates and writes `variants.json` as structured JSON.
-The current Control flow gates on that file but still simulates sending and
-replies; it does not yet select variants or deliver real outreach.
+The LeadGen agent writes tool-discovered public posts to the exact `leads.md`
+table format; it does not invent rows from the model response. Its structured
+source output remains in `tools/leads.json`. The Marketing agent validates and
+writes `variants.json` as structured JSON. The current Control flow gates on
+that file but still simulates sending and replies; it does not select variants
+or deliver real outreach. `tools/outreach.py` is a separately callable,
+sandbox-only Gmail adapter and cannot message Reddit handles.
 
 ## How agents work
 An agent is an `AgentSpec` (name, system prompt, files it `reads`, file it `writes`, mock output) in `agents/specs.py`. Generic `Agent.run()` does: status message → `gather()` → LLM call with the md files as context → `finalize()` → write md file → "Done" message.

@@ -95,6 +95,21 @@ class OutreachSenderTests(unittest.TestCase):
             with self.assertRaises(InputValidationError):
                 asyncio.run(send_dm({"handle": "u/example_user"}, "Message"))
 
+    def test_lead_contact_field_is_used_as_email_address(self):
+        with patch.dict("os.environ", {"OUTREACH_TEST_EMAIL": TEST_EMAIL}), patch(
+            "tools.outreach.load_suppressions", return_value=set()
+        ), patch("tools.outreach.send_batch") as send_batch:
+            result = asyncio.run(
+                send_dm(
+                    {"name": "Test Inbox", "contact": TEST_EMAIL},
+                    "Sandbox message",
+                )
+            )
+
+        self.assertEqual(result["status"], "dry_run")
+        self.assertEqual(result["recipient"], TEST_EMAIL)
+        send_batch.assert_not_called()
+
     def test_opted_out_test_recipient_is_skipped(self):
         sender_result = {
             "recipient": TEST_EMAIL,

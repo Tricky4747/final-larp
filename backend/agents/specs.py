@@ -19,9 +19,14 @@ SPECS = {
         mock="<html><body><h1>Demo landing page</h1></body></html>"),
     "leads": AgentSpec(
         name="LeadGen",
-        system_prompt="Given the plan, output a markdown table of target leads (name, handle, why they fit).",
+        system_prompt=(
+            "Use only the public post results provided under TOOL RESULTS. "
+            "Do not invent leads, contact information, handles, or evidence. "
+            "Return only a markdown table with this exact header: "
+            "| name | handle | contact | why |"
+        ),
         reads=["plan.md"], writes="leads.md",
-        mock="| name | handle | fit |\n|---|---|---|\n| Acme Bakery | @acme | local, no site |"),
+        mock="| name | handle | contact | why |\n| --- | --- | --- | --- |"),
     "marketing": AgentSpec(
         name="Marketing",
         system_prompt=(

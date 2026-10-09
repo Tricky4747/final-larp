@@ -84,11 +84,12 @@ def _send_test_email(
     dry_run: bool,
     compliance_confirmed: bool,
 ) -> dict[str, Any]:
-    candidate = lead.get("email") or lead.get("handle")
+    candidate = lead.get("email") or lead.get("contact")
     if not isinstance(candidate, str) or not candidate.strip():
         raise InputValidationError(
-            "This outreach path requires an email address. A public profile "
-            "handle cannot be used as a Gmail recipient."
+            "This outreach path requires an email address in the lead's email "
+            "or contact field. A public profile handle cannot be used as a "
+            "Gmail recipient."
         )
     recipient = validate_email_address(candidate)
 
