@@ -55,7 +55,7 @@ async def main():
 
     await r.handle("make the plan more technical")
     assert "cascade" in seen and writes(bus, "plan.md") == 2
-    assert writes(bus, "landing.md") == 3 and writes(bus, "leads.md") == 2 and writes(bus, "variants.md") == 3
+    assert writes(bus, "landing.md") == 3 and writes(bus, "leads.md") == 2 and writes(bus, "variants.json") == 3
     print("OK revise plan -> cascade approved -> landing/leads/marketing regenerated")
 
     await r.handle("set explore to 30%"); assert c.exp.epsilon == 0.3
@@ -69,7 +69,7 @@ async def main():
     print("OK extra round from chat (approval gate asked, 5 sends)")
 
     await r.handle("make the messages shorter", channel="Marketing")
-    assert writes(bus, "variants.md") == 5 and said(bus, "Marketing updated", "Marketing")
+    assert writes(bus, "variants.json") == 5 and said(bus, "Marketing updated", "Marketing")
     await r.handle("run another round", channel="Marketing"); assert said(bus, "team-wide", "Marketing")
     print("OK DM to an agent (revise works, team-wide commands redirected)")
 

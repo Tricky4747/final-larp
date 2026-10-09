@@ -34,8 +34,8 @@ def _message_from_variant(
     variant_key: str,
     variants_file: str | Path | None = None,
 ) -> str:
-    if not isinstance(variant_key, str) or variant_key not in {"A", "B", "C", "D"}:
-        raise ValueError("variant must be one of A, B, C, or D.")
+    if not isinstance(variant_key, str) or variant_key not in {"A", "B", "C", "D", "E", "F"}:
+        raise ValueError("variant must be one of A, B, C, D, E, or F.")
     source = Path(variants_file) if variants_file is not None else VARIANTS_FILE
     try:
         variants = json.loads(source.read_text(encoding="utf-8"))
@@ -44,14 +44,19 @@ def _message_from_variant(
     except OSError as exc:
         raise RuntimeError(f"Cannot read marketing variants file: {source}.") from exc
 
-    if not isinstance(variants, dict) or set(variants) != {"A", "B", "C", "D"}:
-        raise ValueError("Marketing variants file must contain exactly A, B, C, and D.")
+    valid_key_sets = ({"A", "B", "C", "D"}, {"A", "B", "C", "D", "E", "F"})
+    if not isinstance(variants, dict) or set(variants) not in valid_key_sets:
+        raise ValueError("Marketing variants file must contain A-D, optionally with both E and F.")
+    if variant_key not in variants:
+        raise ValueError(f"Variant {variant_key} is not present in the Marketing variants file.")
     selected = variants[variant_key]
     expected_angles = {
         "A": "pain-point",
         "B": "social-proof",
         "C": "question",
         "D": "offer-first",
+        "E": "curiosity-led",
+        "F": "proof-led",
     }
     if (
         not isinstance(selected, dict)

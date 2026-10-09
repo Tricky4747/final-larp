@@ -191,8 +191,11 @@ class MarketingAgent(Agent):                # OWNER: Person D
             "C": "question",
             "D": "offer-first",
         }
-        if not isinstance(variants, dict) or set(variants) != set(expected):
-            raise ValueError("variants.json must contain exactly variants A, B, C, and D.")
+        valid_key_sets = (set(expected), set(expected) | {"E", "F"})
+        if not isinstance(variants, dict) or set(variants) not in valid_key_sets:
+            raise ValueError("variants.json must contain A-D, optionally with both E and F.")
+        if "E" in variants:
+            expected.update({"E": "curiosity-led", "F": "proof-led"})
 
         for key, angle in expected.items():
             variant = variants[key]
@@ -224,7 +227,11 @@ class LeadGenAgent(Agent):                  # OWNER: Person D
         )
 
     async def gather(self, task):
-        await self.say("Searching public Reddit posts...", channel=self.name, kind="status")
+        await self.say(
+            "Searching with Tavily for public business websites and published contact emails...",
+            channel=self.name,
+            kind="status",
+        )
         leads = await find_leads(query=self.ws.read("plan.md")[:200], location="Chennai", n=10)
         self._discovered_leads.set(tuple(leads))
         if not leads:
@@ -243,7 +250,7 @@ class LeadGenAgent(Agent):                  # OWNER: Person D
         leads = self._discovered_leads.get()
         if not leads:
             await self.say(
-                "No matching public posts were found; leads.md contains the empty results table."
+                "No matching public business leads were found; leads.md contains the empty results table."
             )
         for lead in leads:
             values = [

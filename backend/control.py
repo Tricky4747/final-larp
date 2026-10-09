@@ -6,7 +6,6 @@ from bus import Bus, Message
 from workspace import Workspace
 from experiments import Experiments
 from llm import complete, parse_json
-from parsing import parse_variants
 
 class Control:
     def __init__(self, ws: Workspace, bus: Bus, auto_approve: bool = True):
@@ -193,7 +192,7 @@ class Control:
             narrative = f"No variant has enough data yet. Current split: {split}."
         question = f"Send round {self.round} to {n} leads? {narrative}"
         if not await self.gate(f"round{self.round}", question,
-                               "marketing", file="variants.md"):
+                               "marketing", file="variants.json"):
             return False
 
         # Load discovered leads and send real outreach via outreach.py
@@ -247,7 +246,12 @@ class Control:
         return True
 
     async def learn_round(self, stats: dict):
-        variants = parse_variants(self.ws.read("variants.md"))
+        saved_variants = json.loads(self.ws.read("variants.json"))
+        variants = {
+            key: value["text"]
+            for key, value in saved_variants.items()
+            if isinstance(value, dict) and isinstance(value.get("text"), str)
+        }
         variant_context = "\n".join(f"{key}: {text}" for key, text in variants.items())
         prompt = ("Analyze this outreach experiment. Compare the variant wording with the "
                   "reply rates and explain the likely reason for the result. Write exactly "
@@ -273,16 +277,33 @@ class Control:
 
         output = await self.agents["marketing"].run(
             "Use the new lessons to refresh the DM set. Keep A-D, and generate 1-2 new "
-            "challenger variants labelled E and F for the explore slice."
+            "challenger variants E and F for the explore slice. Return valid JSON "
+            "with exactly A-F, each containing angle and text."
         )
-        refreshed = parse_variants(output)
-        challengers = {key: text for key, text in refreshed.items() if key in "EF"}
-        if not challengers:
-            current = parse_variants(self.ws.read("variants.md"))
-            current.update({"E": "A new curiosity-led challenger for {name}: {why}",
-                            "F": "A concise proof-led challenger for {name}: {why}"})
-            await self.ws.write("variants.md", "\n".join(f"{key}: {text}" for key, text in current.items()), "Control")
-            challengers = {key: current[key] for key in "EF"}
+        refreshed = json.loads(output)
+        challengers = {
+            key: refreshed[key]
+            for key in ("E", "F")
+            if isinstance(refreshed.get(key), dict)
+        }
+        if set(challengers) != {"E", "F"}:
+            refreshed = saved_variants
+            refreshed.update({
+                "E": {
+                    "angle": "curiosity-led",
+                    "text": "Hi {name}, I noticed {why}. Would you be open to sharing your perspective?",
+                },
+                "F": {
+                    "angle": "proof-led",
+                    "text": "Hi {name}, based on {why}, I can share a brief overview. Would that be useful?",
+                },
+            })
+            await self.ws.write(
+                "variants.json",
+                json.dumps(refreshed, ensure_ascii=False, indent=2),
+                "Control",
+            )
+            challengers = {key: refreshed[key] for key in ("E", "F")}
         for variant in challengers:
             self.exp.register(variant)
         await self.say(f"Marketing added challenger variants: {', '.join(sorted(challengers))}.")
