@@ -21,7 +21,7 @@ class LandingPageAgent(Agent):              # OWNER: Person C
         idea = self.ws.read("idea.md").replace("# Idea", "").strip()
         slug = re.sub(r"[^a-z0-9]+", "-", idea.lower())[:24].strip("-") or "demo"
         url = await deploy_html(html, slug)
-        await self.bus.post(Message(sender=self.name, text=f"Landing page is live: {url}", meta={"url": url}))
+        await self.bus.post(Message(sender=self.name, text=f"Landing page is live: {url}", channel=self.name, meta={"url": url}))
         return f"<!-- live: {url} -->\n{html}"
 
 class LeadGenAgent(Agent):                  # OWNER: Person D

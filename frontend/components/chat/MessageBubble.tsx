@@ -25,7 +25,8 @@ export default function MessageBubble({ m }: { m: Message }) {
       <div className={`max-w-[80%] rounded-lg px-3 py-2 ${me ? "bg-mint" : "bg-raise"}`}>
         {!me && <div className="mb-0.5 text-xs font-semibold" style={{ color: agentColor(m.sender) }}>{m.sender}</div>}
         <p className="whitespace-pre-wrap break-words text-sm">{m.text}</p>
-        {m.kind === "approval_request" && <ApprovalBubble id={m.meta.id} />}
+        {m.kind === "approval_request" && <ApprovalBubble id={m.meta.id} stage={m.meta.stage} file={m.meta.file} text={m.text}
+          batch={m.meta.batch} split={m.meta.split} winner={m.meta.winner} replyRate={m.meta.replyRate} />}
         {m.meta.url && <LinkCard url={m.meta.url} />}
         <div className="mt-1 text-right text-[10px] text-mute">{new Date(m.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
       </div>

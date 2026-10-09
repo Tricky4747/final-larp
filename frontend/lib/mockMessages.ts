@@ -25,11 +25,15 @@ export const MOCK_MESSAGES: Message[] = [
   m("Planner", "Planner", "Drafting plan...", "status"),
   m("Planner", "group", "Plan is ready.", "message"),
   m("Planner", "group", "Planner updated plan.md", "file_update", { file: "plan.md" }),
-  m("Control", "group", "Approve deploying the landing page?", "approval_request", { id: "ap000001" }),
+  m("Control", "group", "Here's the plan. Proceed to build?", "approval_request", { id: "ap000001", stage: "plan", file: "plan.md" }),
   m("LandingPage", "group", "Landing page is live.", "message", { url: "https://example.netlify.app" }),
   m("LeadGen", "LeadGen", "Finding leads...", "status"),
   m("LeadGen", "group", "20 leads found.", "message"),
   m("LeadGen", "group", "LeadGen updated leads.md", "file_update", { file: "leads.md" }),
   m("Marketing", "group", "Four DM variants written.", "message"),
   m("Marketing", "group", "Marketing updated variants.md", "file_update", { file: "variants.md" }),
+  m("Control", "group", "Approve these DM variants?", "approval_request", { id: "ap000002", stage: "variants", file: "variants.md" }),
+  m("Control", "group", "Send round 1 to 10 leads? Split by variant: C: 8, A: 1, B: 1. Current winner: C at 38% reply rate.", "approval_request", {
+    id: "ap000003", stage: "round1", file: "variants.md", batch: 10, split: { C: 8, A: 1, B: 1 }, winner: "C", replyRate: 0.38,
+  }),
 ];

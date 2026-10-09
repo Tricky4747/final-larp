@@ -56,4 +56,5 @@ class Agent:
         if self.spec.writes:
             await self.ws.write(self.spec.writes, out, self.name)
         await self.say(f"Done. Output saved to {self.spec.writes or 'chat'}.")
+        await self.say(out, channel=self.name)
         return out

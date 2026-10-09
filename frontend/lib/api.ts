@@ -18,5 +18,7 @@ export const getFile = (n: string) => MOCK
   : j<{ name: string; content: string }>("/files/" + encodeURIComponent(n));
 export const getExperiments = () => MOCK ? Promise.resolve(MOCK_EXPERIMENTS) : j<Experiments>("/experiments");
 export const postIdea = (idea: string) => MOCK ? Promise.resolve({ ok: true }) : post("/idea", { idea });
-export const postApprove = (id: string, ok: boolean) => MOCK ? Promise.resolve({ ok: true }) : post("/approve/" + id, { ok });
+export const postApprove = (id: string, ok: boolean, feedback = "") => MOCK ? Promise.resolve({ ok: true }) : post("/approve/" + id, { ok, feedback });
+export const postChat = (text: string, channel: string) => MOCK ? Promise.resolve({ ok: true }) : post("/chat", { text, channel });
+export const postRound = (n: number) => MOCK ? Promise.resolve({ ok: true }) : post("/round", { n });
 export type { Message };
