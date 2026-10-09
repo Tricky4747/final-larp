@@ -11,10 +11,12 @@ class Workspace:
         return p.read_text() if p.exists() else ""
 
     async def write(self, name: str, content: str, author: str):
+        self.root.mkdir(parents=True, exist_ok=True)
         (self.root / name).write_text(content)
         await self._announce(name, author, "wrote")
 
     async def append(self, name: str, content: str, author: str):
+        self.root.mkdir(parents=True, exist_ok=True)
         with open(self.root / name, "a") as f: f.write("\n" + content)
         await self._announce(name, author, "updated")
 
