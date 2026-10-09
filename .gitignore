@@ -1,4 +1,7 @@
-.env
+workspace/
+experiments.db
+__pycache__/
+.env.env
 .env.*
 !.env.example
 !**/.env.example
