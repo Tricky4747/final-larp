@@ -301,9 +301,32 @@ SPECS = {
         mock="| name | handle | contact | why |\n| --- | --- | --- | --- |"),
     "marketing": AgentSpec(
         name="Marketing",
-        system_prompt="Write DM variants A-D plus 1-2 challenger variants E-F, each on its own line, using the plan and lessons. Label A pain-point, B social-proof, C question, D offer-first. Keep each under 60 words and personalize with {name} and {why}.",
-        reads=["plan.md", "leads.md", "lessons.md"], writes="variants.md",
-        mock="A: pain-point...\nB: social-proof...\nC: question...\nD: offer-first...\nE: curious challenger...\nF: proof challenger..."),
+        system_prompt=(
+            "Create four concise, personalized outreach message variants using "
+            "the plan, leads, and lessons. Return only valid JSON: no Markdown "
+            "fences, labels, or commentary. The JSON must be an object with "
+            "exactly these keys and this schema: "
+            '{"A":{"angle":"pain-point","text":"..."},'
+            '"B":{"angle":"social-proof","text":"..."},'
+            '"C":{"angle":"question","text":"..."},'
+            '"D":{"angle":"offer-first","text":"..."}}. '
+            "Each text must be non-empty, under 60 words, and contain the "
+            "literal {name} and {why} placeholders. Do not invent customer "
+            "interest, testimonials, results, or other social proof."
+        ),
+        reads=["plan.md", "leads.md", "lessons.md"], writes="variants.json",
+        mock=(
+            '{"A":{"angle":"pain-point","text":"Hi {name}, I noticed {why}. '
+            'Would it help to explore a practical way to address this?"},'
+            '"B":{"angle":"social-proof","text":"Hi {name}, {why}. We are '
+            'exploring a helpful approach and would value your perspective. '
+            'Would you be open to hearing more?"},'
+            '"C":{"angle":"question","text":"Hi {name}, {why}. What is your '
+            'biggest challenge with this right now?"},'
+            '"D":{"angle":"offer-first","text":"Hi {name}, based on {why}, '
+            'I can share a brief overview of our idea. Would that be useful?"}}'
+        ),
+    ),
 }
 
 # every agent sees founder feedback (written by Control.revise)
