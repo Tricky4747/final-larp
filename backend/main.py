@@ -9,7 +9,7 @@ from control import Control
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-bus = Bus(); ws = Workspace(bus=bus); ctl = Control(ws, bus)
+bus = Bus(); ws = Workspace(bus=bus); ctl = Control(ws, bus, auto_approve=False)
 
 @app.post("/idea")
 async def idea(body: dict):
@@ -24,6 +24,9 @@ async def stream():
             while True: yield {"data": json.dumps((await q.get()).to_dict())}
         finally: bus.unsubscribe(q)
     return EventSourceResponse(gen())
+
+@app.get("/agents")                      # sidebar list
+def agents(): return [{"name": "Control"}] + [{"name": a.name} for a in ctl.agents.values()]
 
 @app.get("/files")
 def files(): return ws.list()

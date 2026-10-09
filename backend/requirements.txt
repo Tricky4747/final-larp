@@ -1,4 +1,4 @@
 fastapi
 uvicorn
 sse-starlette
-anthropic
+google-genai

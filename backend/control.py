@@ -7,9 +7,12 @@ from workspace import Workspace
 from experiments import Experiments
 
 class Control:
-    def __init__(self, ws: Workspace, bus: Bus):
-        self.ws, self.bus = ws, bus
+    def __init__(self, ws: Workspace, bus: Bus, auto_approve: bool = True):
+        self.ws, self.bus, self.auto_approve = ws, bus, auto_approve
         self.agents = {k: Agent(s, ws, bus) for k, s in SPECS.items()}
+        from agents.custom import CUSTOM          # C & D's agents with real tools override the generic ones
+        for k, cls in CUSTOM.items():
+            self.agents[k] = cls(SPECS[k], ws, bus)
         self.exp = Experiments()
         self.approvals: dict[str, asyncio.Future] = {}
 
@@ -19,11 +22,11 @@ class Control:
     async def approve(self, approval_id: str, ok: bool):
         if f := self.approvals.get(approval_id): f.set_result(ok)
 
-    async def ask_founder(self, question: str, auto=True) -> bool:
+    async def ask_founder(self, question: str) -> bool:
         aid = uuid.uuid4().hex[:6]
         fut = self.approvals[aid] = asyncio.get_running_loop().create_future()
         await self.bus.post(Message(sender="Control", text=question, kind="approval_request", meta={"id": aid}))
-        if auto: fut.set_result(True)   # demo/CLI mode; UI mode waits for POST /approve
+        if self.auto_approve: fut.set_result(True)   # CLI mode; API mode waits for POST /approve/{id}
         return await fut
 
     async def run_pipeline(self, idea: str):

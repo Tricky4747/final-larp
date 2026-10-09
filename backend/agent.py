@@ -22,13 +22,26 @@ class Agent:
     async def say(self, text, channel="group", **kw):
         await self.bus.post(Message(sender=self.name, text=text, channel=channel, **kw))
 
-    def build_context(self, task: str) -> str:
+    def build_context(self, task: str, extra: str = "") -> str:
         parts = [f"## {f}\n{self.ws.read(f)}" for f in self.spec.reads if self.ws.read(f)]
+        if extra:
+            parts.append(f"## TOOL RESULTS\n{extra}")
         return "\n\n".join(parts) + f"\n\n## YOUR TASK\n{task}"
+
+    # ---- HOOKS: subclasses (agents/custom.py) override these; everything else stays generic ----
+    async def gather(self, task: str) -> str:
+        """Run tools (search, scrape...) BEFORE the LLM call. Return text to inject as context."""
+        return ""
+
+    async def finalize(self, out: str) -> str:
+        """Post-process the LLM output (e.g. deploy the HTML). Return the text to save to the md file."""
+        return out
 
     async def run(self, task: str) -> str:
         await self.say(f"On it: {task[:80]}", channel=self.name, kind="status")
-        out = await complete(self.spec.system_prompt, self.build_context(task), mock=self.spec.mock)
+        extra = await self.gather(task)
+        out = await complete(self.spec.system_prompt, self.build_context(task, extra), mock=self.spec.mock)
+        out = await self.finalize(out)
         if self.spec.writes:
             await self.ws.write(self.spec.writes, out, self.name)
         await self.say(f"Done. Output saved to {self.spec.writes or 'chat'}.")

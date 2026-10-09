@@ -3,7 +3,7 @@ import sqlite3, random
 
 class Experiments:
     def __init__(self, path="experiments.db", epsilon=0.2):
-        self.db = sqlite3.connect(path); self.epsilon = epsilon
+        self.db = sqlite3.connect(path, check_same_thread=False); self.epsilon = epsilon
         self.db.execute("CREATE TABLE IF NOT EXISTS v(variant TEXT PRIMARY KEY, sends INT DEFAULT 0, replies INT DEFAULT 0)")
 
     def register(self, variant):
