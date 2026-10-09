@@ -1,4 +1,5 @@
 """Declarative agent: a spec + one generic run(). Adding an agent = adding a spec."""
+import asyncio
 from dataclasses import dataclass, field
 from llm import complete
 from bus import Bus, Message
@@ -38,6 +39,16 @@ class Agent:
         return out
 
     async def run(self, task: str) -> str:
+        try:
+            return await asyncio.wait_for(self._run(task), timeout=90)
+        except Exception as exc:
+            reason = str(exc) or type(exc).__name__
+            await self.say(f"{self.name} failed: {reason}. Using fallback.", kind="status")
+            if self.spec.writes:
+                await self.ws.write(self.spec.writes, self.spec.mock, self.name)
+            return self.spec.mock
+
+    async def _run(self, task: str) -> str:
         await self.say(f"On it: {task[:80]}", channel=self.name, kind="status")
         extra = await self.gather(task)
         out = await complete(self.spec.system_prompt, self.build_context(task, extra), mock=self.spec.mock)
