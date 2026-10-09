@@ -1,129 +1,154 @@
-"""Offline tests for public Reddit RSS lead discovery."""
+"""Offline unit tests for web-scraping lead discovery in tools/leads.py."""
 
 import asyncio
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tools.leads import LeadSourceUnavailable, _discover_leads, find_leads
+try:
+    from backend.tools.leads import (
+        _clean_name,
+        _contact_links,
+        _discover,
+        _domain_of,
+        _extract_emails,
+        _is_skipped,
+        _same_site,
+        _search,
+        find_leads,
+    )
+except ImportError:
+    from tools.leads import (
+        _clean_name,
+        _contact_links,
+        _discover,
+        _domain_of,
+        _extract_emails,
+        _is_skipped,
+        _same_site,
+        _search,
+        find_leads,
+    )
 
 
-ATOM_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <entry>
-    <title>What skills should I learn for a career change?</title>
-    <link href="https://www.reddit.com/r/careerguidance/comments/example/post/"/>
-    <author><name>u/example_user</name></author>
-    <content type="html">&lt;p&gt;Looking for advice on which skills to learn.&lt;/p&gt;</content>
-  </entry>
-  <entry>
-    <title>My weekend project</title>
-    <link href="https://www.reddit.com/r/careerguidance/comments/other/post/"/>
-    <author><name>u/another_user</name></author>
-    <content type="html">&lt;p&gt;I built a small app.&lt;/p&gt;</content>
-  </entry>
-</feed>
-"""
+class TestLeadHelpers(unittest.TestCase):
+    def test_domain_of(self):
+        self.assertEqual(_domain_of("https://www.example.com/about"), "example.com")
+        self.assertEqual(_domain_of("http://sub.domain.co.in/page"), "sub.domain.co.in")
+        self.assertEqual(_domain_of("not-a-url"), "")
+
+    def test_is_skipped(self):
+        self.assertTrue(_is_skipped("justdial.com"))
+        self.assertTrue(_is_skipped("sub.linkedin.com"))
+        self.assertTrue(_is_skipped("reddit.com"))
+        self.assertFalse(_is_skipped("freshcateringchennai.com"))
+
+    def test_clean_name(self):
+        self.assertEqual(_clean_name("ABC Catering | Best Wedding Caterers", "abccatering.com"), "ABC Catering")
+        self.assertEqual(_clean_name("XYZ Foods - Chennai", "xyzfoods.in"), "XYZ Foods")
+        self.assertEqual(_clean_name("", "xyzfoods.in"), "xyzfoods.in")
+
+    def test_extract_emails_direct_and_obfuscated(self):
+        html = """
+        <div>
+            Contact us: orders@chennaicatering.com
+            Alternative: support [at] chennaicatering [dot] com
+            Junk: test@example.com, icon@2x.png, info@godaddy.com
+        </div>
+        """
+        emails = _extract_emails(html)
+        self.assertIn("orders@chennaicatering.com", emails)
+        self.assertIn("support@chennaicatering.com", emails)
+        self.assertNotIn("test@example.com", emails)
+        self.assertNotIn("icon@2x.png", emails)
+        self.assertNotIn("info@godaddy.com", emails)
+
+    def test_same_site_priority(self):
+        self.assertTrue(_same_site("info@mycatering.com", "mycatering.com"))
+        self.assertTrue(_same_site("info@mycatering.com", "www.mycatering.com"))
+        self.assertFalse(_same_site("caterer@gmail.com", "mycatering.com"))
+
+    def test_contact_links(self):
+        html = """
+        <html>
+            <body>
+                <a href="/contact-us">Contact</a>
+                <a href="https://mysite.com/about">About Us</a>
+                <a href="https://external.com/contact">Other</a>
+                <a href="mailto:info@mysite.com">Email</a>
+            </body>
+        </html>
+        """
+        links = _contact_links(html, "https://mysite.com")
+        self.assertIn("https://mysite.com/contact-us", links)
+        self.assertIn("https://mysite.com/about", links)
+        self.assertNotIn("https://external.com/contact", links)
+        self.assertNotIn("mailto:info@mysite.com", links)
 
 
-class FakeResponse:
-    def __enter__(self):
-        return self
+class TestValidationAndSearch(unittest.TestCase):
+    def test_input_validation(self):
+        with self.assertRaises(ValueError):
+            asyncio.run(find_leads("", "Chennai", 5))
+        with self.assertRaises(ValueError):
+            asyncio.run(find_leads("catering", "", 5))
+        with self.assertRaises(ValueError):
+            asyncio.run(find_leads("catering", "Chennai", 0))
+        with self.assertRaises(ValueError):
+            asyncio.run(find_leads("catering", "Chennai", -1))
+        with self.assertRaises(ValueError):
+            asyncio.run(find_leads("catering", "Chennai", True))  # type: ignore
 
-    def __exit__(self, *_args):
-        return None
+    def test_search_uses_tavily_when_configured(self):
+        target_mod = "backend.tools.leads" if "backend.tools.leads" in sys.modules else "tools.leads"
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "fake-tavily-key"}):
+            with patch(f"{target_mod}._tavily_search") as mock_tavily:
+                mock_tavily.return_value = [{"title": "Test", "url": "https://test.com", "snippet": "foo"}]
+                results = _search("catering Chennai")
+                self.assertEqual(len(results), 1)
+                mock_tavily.assert_called_once()
 
-    def read(self):
-        return ATOM_FEED
 
+class TestDiscoveryWorkflow(unittest.TestCase):
+    def test_discover_merges_and_saves_leads(self):
+        target_mod = "backend.tools.leads" if "backend.tools.leads" in sys.modules else "tools.leads"
 
-class RedditLeadTests(unittest.TestCase):
-    def test_discovery_returns_matching_public_post_and_never_email(self):
-        requests = []
-
-        def opener(request, *, timeout):
-            requests.append((request, timeout))
-            return FakeResponse()
-
-        with tempfile.TemporaryDirectory() as directory:
-            results_file = Path(directory) / "leads.json"
-            with patch("tools.leads.RESULTS_FILE", results_file):
-                result = _discover_leads(
-                    "skill guidance", "Anywhere", 10, opener=opener
-                )
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["handle"], "u/example_user")
-        self.assertEqual(result[0]["contact"], "")
-        self.assertEqual(
-            result[0]["source"],
-            "https://www.reddit.com/r/careerguidance/comments/example/post/",
-        )
-        self.assertTrue(requests)
-        self.assertTrue(all(timeout == 15 for _, timeout in requests))
-        self.assertTrue(all(request.full_url.startswith("https://www.reddit.com/") for request, _ in requests))
-
-    def test_async_backend_entrypoint_uses_discovery(self):
-        expected = [{"name": "public post"}]
-        with patch("tools.leads.asyncio.to_thread", return_value=expected) as to_thread:
-            result = asyncio.run(find_leads("skill coaching", "Anywhere", 3))
-        self.assertEqual(result, expected)
-        to_thread.assert_called_once()
-
-    def test_rejects_invalid_limit(self):
-        with self.assertRaisesRegex(ValueError, "positive integer"):
-            _discover_leads("query", "Anywhere", 0, opener=lambda *_args, **_kwargs: FakeResponse())
-
-    def test_async_entrypoint_returns_empty_on_feed_failures(self):
-        with patch(
-            "tools.leads._discover_leads",
-            side_effect=LeadSourceUnavailable("all feeds unavailable"),
-        ):
-            result = asyncio.run(find_leads("skill coaching", "Anywhere", 3))
-        self.assertEqual(result, [])
-
-    def test_successful_search_saves_current_results_atomically(self):
-        config = {
-            "subreddits": ["careerguidance"],
-            "intent_terms": ["advice"],
-            "topic_terms": ["skills"],
-            "limit_per_feed": 10,
-        }
-        feed = [
-            {
-                "title": "What skills should I learn for career change?",
-                "content": "Looking for advice.",
-                "url": "https://www.reddit.com/r/careerguidance/comments/example/post/",
-                "author": "u/example_user",
-            }
+        search_results = [
+            {"title": "Subiksham Catering | Chennai", "url": "https://www.subikshamcatering.com", "snippet": "Best caterers"},
         ]
-        with tempfile.TemporaryDirectory() as directory:
-            results_file = Path(directory) / "leads.json"
-            with patch("tools.leads.RESULTS_FILE", results_file), patch(
-                "tools.leads._load_sources", return_value=config
-            ), patch("tools.leads._read_feed", return_value=feed):
-                result = _discover_leads("query", "Anywhere", 10)
-            saved = json.loads(results_file.read_text(encoding="utf-8"))
-        self.assertEqual(saved, result)
-        self.assertEqual(len(saved), 1)
+        homepage_html = """
+        <html>
+            <body>
+                <h1>Subiksham Catering</h1>
+                <p>Email: contact@subikshamcatering.com</p>
+            </body>
+        </html>
+        """
 
-    def test_successful_search_saves_empty_results_when_no_posts_match(self):
-        config = {
-            "subreddits": ["careerguidance"],
-            "intent_terms": ["advice"],
-            "topic_terms": ["skills"],
-            "limit_per_feed": 10,
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            results_file = Path(directory) / "leads.json"
-            with patch("tools.leads.RESULTS_FILE", results_file), patch(
-                "tools.leads._load_sources", return_value=config
-            ), patch("tools.leads._read_feed", return_value=[]):
-                result = _discover_leads("query", "Anywhere", 10)
-            saved = json.loads(results_file.read_text(encoding="utf-8"))
-        self.assertEqual(result, [])
-        self.assertEqual(saved, [])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_leads_file = Path(temp_dir) / "leads.json"
+            temp_leads_file.write_text("[]", encoding="utf-8")
+
+            with patch(f"{target_mod}.RESULTS_FILE", temp_leads_file), \
+                 patch(f"{target_mod}._search", return_value=search_results), \
+                 patch(f"{target_mod}._fetch", return_value=homepage_html), \
+                 patch("urllib.robotparser.RobotFileParser.can_fetch", return_value=True):
+
+                leads = asyncio.run(find_leads("catering", "Chennai", 1))
+
+                self.assertEqual(len(leads), 1)
+                self.assertEqual(leads[0]["name"], "Subiksham Catering")
+                self.assertEqual(leads[0]["handle"], "subikshamcatering.com")
+                self.assertEqual(leads[0]["contact"], "contact@subikshamcatering.com")
+                self.assertEqual(leads[0]["source"], "https://www.subikshamcatering.com")
+
+                # Verify saved file
+                saved_content = json.loads(temp_leads_file.read_text(encoding="utf-8"))
+                self.assertEqual(len(saved_content), 1)
+                self.assertEqual(saved_content[0]["contact"], "contact@subikshamcatering.com")
 
 
 if __name__ == "__main__":

@@ -3,7 +3,14 @@ import os, json, asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+for _env_path in (
+    Path(__file__).resolve().parent / ".env",
+    Path(__file__).resolve().parent / ".env.local",
+    Path(__file__).resolve().parents[1] / ".env",
+    Path(__file__).resolve().parents[1] / ".env.local",
+):
+    if _env_path.is_file():
+        load_dotenv(_env_path)
 MODEL = os.getenv("MODEL", "gemini-3.5-flash-lite")   # override via env, e.g. MODEL=gemini-2.5-pro
 _client = None
 _sem = asyncio.Semaphore(3)

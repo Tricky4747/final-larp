@@ -1,218 +1,385 @@
-"""Discover public career-guidance posts from configurable Reddit RSS feeds."""
+"""Find businesses via web search and collect the contact emails they publish on their own sites.
+
+Pipeline: search -> drop directories/social -> visit homepage + contact/about pages
+-> extract emails -> keep leads that have one -> merge into leads.json.
+
+Search backend, first one configured wins (keys are read from the environment or a .env file):
+  1. TAVILY_API_KEY -> Tavily Search API
+  2. BRAVE_API_KEY  -> Brave Search API
+  3. otherwise      -> DuckDuckGo via the `ddgs` package (pip install ddgs; rate limited)
+If the chosen API fails or returns nothing, the next backend is tried.
+"""
 
 import asyncio
-import html
 import json
 import logging
 import os
 import re
 import tempfile
-import xml.etree.ElementTree as ET
-from html.parser import HTMLParser
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from html import unescape
 from pathlib import Path
-from typing import Any, Callable
-from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlparse
 from urllib.request import Request, urlopen
+from urllib.robotparser import RobotFileParser
 
-SOURCES_FILE = Path(__file__).with_name("lead_sources.json")
 RESULTS_FILE = Path(__file__).with_name("leads.json")
-REQUEST_TIMEOUT_SECONDS = 15
-USER_AGENT = "final-larp-leadgen/1.0 (public RSS feed reader)"
-ATOM_NAMESPACE = "{http://www.w3.org/2005/Atom}"
+REQUEST_TIMEOUT_SECONDS = 12
+MAX_PAGE_BYTES = 1_500_000
+MAX_CONTACT_PAGES = 2
+WORKERS = 8
+USER_AGENT = "Mozilla/5.0 (compatible; leadgen-bot/1.0)"
 logger = logging.getLogger(__name__)
+
+# Directories, social networks and aggregators: they rarely expose the business's own email.
+SKIP_DOMAINS = {
+    "practo.com", "justdial.com", "sulekha.com", "lybrate.com", "credihealth.com",
+    "indiamart.com", "tradeindia.com", "yellowpages.com", "yelp.com", "tripadvisor.com",
+    "facebook.com", "instagram.com", "linkedin.com", "twitter.com", "x.com",
+    "youtube.com", "pinterest.com", "quora.com", "reddit.com", "wikipedia.org",
+    "google.com", "maps.google.com", "apple.com", "bing.com", "medium.com",
+    "timesofindia.com", "thehindu.com", "magicbricks.com", "99acres.com",
+}
+JUNK_EMAIL_DOMAINS = {
+    "example.com", "domain.com", "email.com", "yoursite.com", "mysite.com",
+    "sentry.io", "wixpress.com", "sentry-next.wixpress.com", "godaddy.com",
+}
+JUNK_EMAIL_LOCALS = {"example", "you", "your", "name", "email", "yourname", "user", "username", "test", "johndoe"}
+FILE_TLDS = {"png", "jpg", "jpeg", "gif", "svg", "webp", "css", "js", "woff", "woff2", "ico", "pdf"}
+
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+AT_RE = re.compile(r"\s*[\[\(\{]\s*at\s*[\]\)\}]\s*", re.I)
+DOT_RE = re.compile(r"\s*[\[\(\{]\s*dot\s*[\]\)\}]\s*", re.I)
+HREF_RE = re.compile(r"""href\s*=\s*["']([^"'#]+)""", re.I)
+CONTACT_HINT_RE = re.compile(r"contact|about|reach|appointment|enquir|inquir", re.I)
 
 
 class LeadSearchError(RuntimeError):
-    """Raised when Reddit source configuration or all configured feeds fail."""
+    """Raised when no search backend is usable."""
 
 
-class LeadSourceUnavailable(LeadSearchError):
-    """Raised when no configured public RSS feed could be read."""
+def _load_env() -> None:
+    """Load KEY=VALUE lines from .env / .env.local without overriding real env vars."""
+    search_dirs = [
+        Path(__file__).resolve().parent,
+        Path(__file__).resolve().parents[1],
+        Path(__file__).resolve().parents[2],
+        Path.cwd(),
+    ]
+    seen_files = set()
+    for directory in search_dirs:
+        for fname in (".env", ".env.local"):
+            env_file = directory / fname
+            if env_file in seen_files or not env_file.is_file():
+                continue
+            seen_files.add(env_file)
+            try:
+                lines = env_file.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                key = key.removeprefix("export ").strip()
+                value = value.strip().strip("'\"").strip()
+                if key and value:
+                    os.environ.setdefault(key, value)
 
 
-class _TextExtractor(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self.parts.append(data)
+_load_env()
 
 
-def _plain_text(value: str) -> str:
-    extractor = _TextExtractor()
-    extractor.feed(value)
-    return " ".join(html.unescape(" ".join(extractor.parts)).split())
+# ---------------------------------------------------------------- search
 
-
-def _load_sources() -> dict[str, Any]:
-    try:
-        config = json.loads(SOURCES_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise LeadSearchError(f"Cannot load Reddit feed settings from {SOURCES_FILE}.") from exc
-    if not isinstance(config, dict):
-        raise LeadSearchError("Reddit feed settings must be a JSON object.")
-
-    subreddits = config.get("subreddits")
-    intent_terms = config.get("intent_terms")
-    topic_terms = config.get("topic_terms")
-    limit_per_feed = config.get("limit_per_feed")
-    if (
-        not isinstance(subreddits, list)
-        or not subreddits
-        or any(not isinstance(item, str) or not re.fullmatch(r"[A-Za-z0-9_]+", item) for item in subreddits)
-    ):
-        raise LeadSearchError("'subreddits' must be a non-empty list of subreddit names.")
-    for field, terms in (("intent_terms", intent_terms), ("topic_terms", topic_terms)):
-        if (
-            not isinstance(terms, list)
-            or not terms
-            or any(not isinstance(term, str) or not term.strip() for term in terms)
-        ):
-            raise LeadSearchError(f"'{field}' must be a non-empty list of text terms.")
-    if isinstance(limit_per_feed, bool) or not isinstance(limit_per_feed, int) or limit_per_feed < 1:
-        raise LeadSearchError("'limit_per_feed' must be a positive integer.")
-    return config
-
-
-def _contains_any(text: str, terms: list[str]) -> bool:
-    return any(re.search(rf"(?<!\w){re.escape(term.strip())}(?!\w)", text, re.IGNORECASE) for term in terms)
-
-
-def _read_feed(subreddit: str, opener: Callable[..., Any]) -> list[dict[str, str]]:
-    url = f"https://www.reddit.com/r/{quote(subreddit, safe='')}/new/.rss"
+def _tavily_search(query: str, api_key: str) -> list[dict[str, str]]:
+    body = json.dumps(
+        {
+            "query": query,
+            "search_depth": "basic",
+            "max_results": 20,
+            "exclude_domains": sorted(SKIP_DOMAINS),
+        }
+    ).encode()
     request = Request(
-        url,
-        headers={"Accept": "application/atom+xml, application/xml", "User-Agent": USER_AGENT},
+        "https://api.tavily.com/search",
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": USER_AGENT,
+        },
     )
     try:
-        with opener(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            root = ET.fromstring(response.read())
-    except HTTPError as exc:
-        raise LeadSearchError(f"Reddit feed r/{subreddit} returned HTTP {exc.code}.") from exc
-    except (URLError, TimeoutError, OSError) as exc:
-        raise LeadSearchError(
-            f"Could not read Reddit feed r/{subreddit} ({type(exc).__name__})."
-        ) from exc
-    except ET.ParseError as exc:
-        raise LeadSearchError(f"Reddit feed r/{subreddit} returned invalid XML.") from exc
+        with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS * 2) as response:
+            data = json.loads(response.read())
+    except Exception as exc:  # bad key, quota, network: caller falls back to another backend
+        logger.warning("Tavily search failed for %r: %s", query, exc)
+        return []
+    return [
+        {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")}
+        for r in data.get("results", [])
+    ]
 
-    entries: list[dict[str, str]] = []
-    for entry in root.findall(f"{ATOM_NAMESPACE}entry"):
-        title_node = entry.find(f"{ATOM_NAMESPACE}title")
-        content_node = entry.find(f"{ATOM_NAMESPACE}content")
-        summary_node = entry.find(f"{ATOM_NAMESPACE}summary")
-        link_node = entry.find(f"{ATOM_NAMESPACE}link")
-        author_node = entry.find(f"{ATOM_NAMESPACE}author/{ATOM_NAMESPACE}name")
-        if title_node is None or link_node is None:
-            continue
-        title = _plain_text("".join(title_node.itertext()))
-        content_node = content_node if content_node is not None else summary_node
-        content = (
-            _plain_text("".join(content_node.itertext()))
-            if content_node is not None
-            else ""
+
+def _brave_search(query: str, pages: int, api_key: str) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for page in range(pages):
+        url = f"https://api.search.brave.com/res/v1/web/search?q={quote(query)}&count=20&offset={page}"
+        request = Request(
+            url,
+            headers={"Accept": "application/json", "X-Subscription-Token": api_key, "User-Agent": USER_AGENT},
         )
-        link = link_node.attrib.get("href", "").strip()
-        author = _plain_text("".join(author_node.itertext())) if author_node is not None else ""
-        if title and link.startswith("https://www.reddit.com/"):
-            entries.append({"title": title, "content": content, "url": link, "author": author})
-    return entries
+        try:
+            with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                data = json.loads(response.read())
+        except Exception as exc:  # network/HTTP/JSON: stop paging, keep what we have
+            logger.warning("Brave search failed for %r (page %d): %s", query, page, exc)
+            break
+        results = data.get("web", {}).get("results", [])
+        if not results:
+            break
+        out.extend(
+            {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("description", "")}
+            for r in results
+        )
+    return out
+
+
+def _ddg_search(query: str, max_results: int) -> list[dict[str, str]]:
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError as exc:
+            raise LeadSearchError(
+                "No search backend available: set TAVILY_API_KEY (or BRAVE_API_KEY) in .env, or pip install ddgs."
+            ) from exc
+    try:
+        rows = DDGS().text(query, max_results=max_results)
+    except Exception as exc:
+        logger.warning("DuckDuckGo search failed for %r: %s", query, exc)
+        return []
+    return [{"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")} for r in rows]
+
+
+def _search(query: str) -> list[dict[str, str]]:
+    tavily_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    if tavily_key:
+        results = _tavily_search(query, tavily_key)
+        if results:
+            return results
+    brave_key = os.environ.get("BRAVE_API_KEY", "").strip()
+    if brave_key:
+        results = _brave_search(query, pages=3, api_key=brave_key)
+        if results:
+            return results
+    if tavily_key or brave_key:
+        # If API keys are configured but returned 0 results, try DDG only if available
+        try:
+            return _ddg_search(query, max_results=40)
+        except LeadSearchError:
+            return []
+    return _ddg_search(query, max_results=40)
+
+
+# ---------------------------------------------------------------- fetching
+
+def _fetch(url: str, *, html_only: bool = True) -> str:
+    request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "text/html,*/*;q=0.5"})
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            content_type = response.headers.get("Content-Type", "")
+            if html_only and "html" not in content_type:
+                return ""
+            charset = response.headers.get_content_charset() or "utf-8"
+            return response.read(MAX_PAGE_BYTES).decode(charset, errors="replace")
+    except Exception:  # scraping: any failure just means "no page"
+        return ""
+
+
+def _allowed_by_robots(url: str, cache: dict[str, RobotFileParser]) -> bool:
+    parsed = urlparse(url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    parser = cache.get(base)
+    if parser is None:
+        parser = RobotFileParser()
+        parser.parse(_fetch(f"{base}/robots.txt", html_only=False).splitlines())  # empty => allow all
+        cache[base] = parser
+    return parser.can_fetch(USER_AGENT, url)
+
+
+# ---------------------------------------------------------------- extraction
+
+def _extract_emails(raw: str) -> list[str]:
+    text = unescape(raw).replace("%40", "@")
+    text = AT_RE.sub("@", text)
+    text = DOT_RE.sub(".", text)
+    found: list[str] = []
+    for match in EMAIL_RE.findall(text):
+        email = match.strip(".").lower()
+        local, _, domain = email.partition("@")
+        if domain.rsplit(".", 1)[-1] in FILE_TLDS:
+            continue
+        if domain in JUNK_EMAIL_DOMAINS or domain.endswith("sentry.io") or domain.endswith("wixpress.com"):
+            continue
+        if local in JUNK_EMAIL_LOCALS:
+            continue
+        if email not in found:
+            found.append(email)
+    return found
+
+
+def _contact_links(raw: str, base_url: str) -> list[str]:
+    host = urlparse(base_url).netloc
+    links: list[str] = []
+    for href in HREF_RE.findall(raw):
+        if href.startswith(("mailto:", "tel:", "javascript:")) or not CONTACT_HINT_RE.search(href):
+            continue
+        absolute = urljoin(base_url, unescape(href))
+        if urlparse(absolute).netloc == host and absolute not in links:
+            links.append(absolute)
+    return links
+
+
+def _same_site(email: str, host: str) -> bool:
+    domain = email.split("@", 1)[1]
+    host = host.removeprefix("www.")
+    return domain == host or domain.endswith("." + host) or host.endswith("." + domain)
+
+
+def _scan_site(result: dict[str, str], robots: dict[str, RobotFileParser]) -> list[str]:
+    parsed = urlparse(result["url"])
+    host = parsed.netloc
+    root = f"{parsed.scheme}://{host}/"
+    pages = [root]
+    if result["url"].rstrip("/") != root.rstrip("/"):
+        pages.append(result["url"])
+
+    emails: list[str] = []
+    contact_pages: list[str] = []
+    for index, page in enumerate(pages):
+        if not _allowed_by_robots(page, robots):
+            continue
+        raw = _fetch(page)
+        emails.extend(e for e in _extract_emails(raw) if e not in emails)
+        if index == 0:
+            contact_pages = _contact_links(raw, root)[:MAX_CONTACT_PAGES]
+            if not contact_pages:
+                contact_pages = [urljoin(root, "contact"), urljoin(root, "contact-us")][:MAX_CONTACT_PAGES]
+    for page in contact_pages:
+        if emails and len(emails) >= 3:
+            break
+        if page in pages or not _allowed_by_robots(page, robots):
+            continue
+        emails.extend(e for e in _extract_emails(_fetch(page)) if e not in emails)
+
+    # Emails on the business's own domain first, then gmail/yahoo/etc. listed on the page.
+    return sorted(emails, key=lambda e: not _same_site(e, host))
+
+
+# ---------------------------------------------------------------- orchestration
+
+def _domain_of(url: str) -> str:
+    return urlparse(url).netloc.lower().removeprefix("www.")
+
+
+def _is_skipped(domain: str) -> bool:
+    return any(domain == d or domain.endswith("." + d) for d in SKIP_DOMAINS)
+
+
+def _clean_name(title: str, domain: str) -> str:
+    name = re.split(r"\s[|\-–—:]\s", unescape(title).strip())[0].strip()
+    return name or domain
+
+
+def _load_existing() -> list[dict[str, str]]:
+    try:
+        data = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
 
 
 def _save_results(results: list[dict[str, str]]) -> None:
     RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
+    fd, tmp = tempfile.mkstemp(dir=RESULTS_FILE.parent, prefix=f".{RESULTS_FILE.name}.", suffix=".tmp")
     try:
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=RESULTS_FILE.parent,
-            prefix=f".{RESULTS_FILE.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as output:
-            temporary_path = Path(output.name)
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
             json.dump(results, output, ensure_ascii=False, indent=2)
             output.write("\n")
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary_path, RESULTS_FILE)
+        os.replace(tmp, RESULTS_FILE)
     finally:
-        if temporary_path is not None and temporary_path.exists():
-            temporary_path.unlink()
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
-def _discover_leads(
-    query: str,
-    location: str,
-    limit: int,
-    *,
-    opener: Callable[..., Any] = urlopen,
-) -> list[dict[str, str]]:
-    if not isinstance(query, str) or not query.strip():
-        raise ValueError("query must be non-empty text.")
-    if not isinstance(location, str) or not location.strip():
-        raise ValueError("location must be non-empty text.")
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise ValueError("limit must be a positive integer.")
-
-    config = _load_sources()
-    successful_feeds = 0
-    failures: list[str] = []
-    results: list[dict[str, str]] = []
-    seen_urls: set[str] = set()
-    for subreddit in config["subreddits"]:
-        try:
-            posts = _read_feed(subreddit, opener)
-            successful_feeds += 1
-        except LeadSearchError as exc:
-            failures.append(str(exc))
-            logger.warning("%s", exc)
-            continue
-
-        for post in posts[: config["limit_per_feed"]]:
-            searchable_text = f"{post['title']} {post['content']}"
-            if not _contains_any(searchable_text, config["intent_terms"]):
+def _discover(query: str, location: str, n: int) -> list[dict[str, str]]:
+    queries = [
+        f"{query} in {location}",
+        f"{query} {location} contact email",
+        f"{query} {location} official website contact us",
+    ]
+    candidates: dict[str, dict[str, str]] = {}
+    for q in queries:
+        for row in _search(q):
+            url = row.get("url", "")
+            if not url.startswith(("http://", "https://")):
                 continue
-            if not _contains_any(searchable_text, config["topic_terms"]):
+            domain = _domain_of(url)
+            if domain and not _is_skipped(domain) and domain not in candidates:
+                candidates[domain] = row
+        if len(candidates) >= n * 5:
+            break
+    if not candidates:
+        return []
+
+    existing = _load_existing()
+    known_emails = {e.strip().lower() for lead in existing for e in lead.get("contact", "").split(",") if e.strip()}
+    robots: dict[str, RobotFileParser] = {}
+    new_leads: list[dict[str, str]] = []
+
+    executor = ThreadPoolExecutor(max_workers=WORKERS)
+    try:
+        futures = {executor.submit(_scan_site, row, robots): (domain, row) for domain, row in candidates.items()}
+        for future in as_completed(futures):
+            domain, row = futures[future]
+            try:
+                emails = future.result()
+            except Exception as exc:
+                logger.warning("Scan failed for %s: %s", domain, exc)
                 continue
-            if post["url"] in seen_urls:
+            emails = [e for e in emails if e not in known_emails]
+            if not emails:
                 continue
-            seen_urls.add(post["url"])
-            results.append(
+            known_emails.update(emails)
+            new_leads.append(
                 {
-                    "name": post["title"],
-                    "handle": post["author"],
-                    "contact": "",
-                    "source": post["url"],
-                    "why": (
-                        f"Public Reddit post in r/{subreddit} contains language "
-                        "seeking advice and mentions career or skill development."
-                    ),
+                    "name": _clean_name(row.get("title", ""), domain),
+                    "handle": domain,
+                    "contact": ", ".join(emails[:3]),
+                    "source": row["url"],
+                    "why": f"Matched web search for '{query}' in {location}; email published on {domain}.",
                 }
             )
-            if len(results) >= limit:
+            if len(new_leads) >= n:
                 break
-        if len(results) >= limit:
-            break
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
-    if successful_feeds == 0:
-        detail = "; ".join(failures) if failures else "No feeds were configured."
-        raise LeadSourceUnavailable(f"No Reddit feeds could be read. {detail}")
-    _save_results(results)
-    return results
+    if new_leads:
+        _save_results(existing + new_leads)
+    return new_leads
 
 
 async def find_leads(query: str, location: str, n: int = 20) -> list[dict[str, str]]:
-    """Return public Reddit posts matching configured career-guidance terms.
+    """Search the web for `query` businesses in `location` and return those with a published email.
 
-    ``query`` and ``location`` remain required for compatibility with the
-    backend agent interface; edit ``lead_sources.json`` to select feeds and
-    matching terms. Reddit handles are included only when the feed publishes
-    them. This function never extracts personal email addresses. Each
-    successful search atomically replaces ``leads.json`` beside this module.
+    Each dict has name, handle (domain), contact (comma-separated emails), source (URL), why.
+    New leads are merged into leads.json beside this module (de-duplicated by email).
     """
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be non-empty text.")
@@ -220,10 +387,4 @@ async def find_leads(query: str, location: str, n: int = 20) -> list[dict[str, s
         raise ValueError("location must be non-empty text.")
     if isinstance(n, bool) or not isinstance(n, int) or n < 1:
         raise ValueError("n must be a positive integer.")
-    try:
-        return await asyncio.to_thread(
-            _discover_leads, query.strip(), location.strip(), n
-        )
-    except LeadSourceUnavailable as exc:
-        logger.warning("Lead discovery unavailable: %s", exc)
-        return []
+    return await asyncio.to_thread(_discover, query.strip(), location.strip(), n)
