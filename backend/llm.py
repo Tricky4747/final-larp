@@ -1,7 +1,7 @@
 """Single LLM entry point (Gemini). Falls back to canned output when no API key (mock mode)."""
 import os, json, asyncio
 
-MODEL = os.getenv("MODEL", "gemini-2.5-flash")   # override via env, e.g. MODEL=gemini-2.5-pro
+MODEL = os.getenv("MODEL", "gemini-3.5-flash-lite")   # override via env, e.g. MODEL=gemini-2.5-pro
 _client = None
 
 def _api_key():

@@ -28,3 +28,7 @@ SPECS = {
         reads=["plan.md", "leads.md", "lessons.md"], writes="variants.md",
         mock="A: pain-point...\nB: social-proof...\nC: question...\nD: offer-first..."),
 }
+
+# every agent sees founder feedback (written by Control.revise)
+for _s in SPECS.values():
+    _s.reads.append("feedback.md")
