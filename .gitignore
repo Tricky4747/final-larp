@@ -1,18 +1,18 @@
-workspace/
-experiments.db
-__pycache__/
-.env.env
+# Environment variables and secrets
+.env
 .env.*
 !.env.example
-!**/.env.example
 credentials.json
 token.json
-__pycache__/
-*.py[cod]
+
+# Python
 .venv/
 venv/
+__pycache__/
+*.py[cod]
+
+# Generated files
+workspace/
+experiments.db
 results.json
 *.tmp
-credentials.json
-token.json
-.env

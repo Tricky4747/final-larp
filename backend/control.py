@@ -75,7 +75,22 @@ class Control:
             self.agents["landing"].run("Build the landing page."),
             self.agents["leads"].run("Find target leads."),
         )
-        if not await self.gate("landing", "Landing page is live. Keep it as is?", "landing", file="landing.md"):
+        landing_content = self.ws.read("landing.md")
+
+        if "<!-- live: UNDEPLOYED -->" in landing_content:
+            landing_prompt = (
+                "Landing page HTML was generated, but it is not deployed. "
+                "Continue anyway?"
+            )
+        else:
+            landing_prompt = "Landing page is live. Keep it as is?"
+
+        if not await self.gate(
+            "landing",
+            landing_prompt,
+            "landing",
+            file="landing.md",
+        ):
             return
         await self.agents["marketing"].run("Write DM variants.")
         for v in "ABCD": self.exp.register(v)

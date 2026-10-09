@@ -26,7 +26,7 @@ async def run(script):
 async def main():
     # 1. happy path: every gate appears, in order
     bus, ws, stages = await run({})
-    assert stages == ["plan", "landing", "variants", "round1"], stages
+    assert stages == ["verdict", "plan", "landing", "variants", "round1"], stages
     print("OK happy path:", stages)
 
     # 2. request changes on the plan: planner re-runs, feedback saved, gate asked again
@@ -38,7 +38,7 @@ async def main():
 
     # 3. reject with empty feedback stops the pipeline before building anything
     bus, ws, stages = await run({"plan": [(False, "")]})
-    assert stages == ["plan"] and not ws.read("landing.md")
+    assert stages == ["verdict", "plan"] and not ws.read("landing.md")
     print("OK cancel: pipeline stopped at plan, nothing built")
 
     # 4. feedback on a DM batch regenerates variants, then asks again
