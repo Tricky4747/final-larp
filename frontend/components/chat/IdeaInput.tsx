@@ -11,6 +11,8 @@ export default function IdeaInput() {
   const [err, setErr] = useState("");
   const active = useStore((s) => s.active);
   const started = useStore((s) => s.ideaSent);
+  // Suggested commands only make sense once the first batch of DMs has actually gone out (Control posts "Round N done").
+  const firstRoundSent = useStore((s) => s.messages.some((m) => m.sender === "Control" && /^Round \d+ done/.test(m.text)));
   const send = async (override?: string) => {
     const msg = (override ?? text).trim();
     if (!msg || busy) return;
@@ -30,9 +32,10 @@ export default function IdeaInput() {
   };
   const who = active === "group" ? "the team" : active;
   const placeholder = !started ? "Describe your business idea"
+    : !firstRoundSent ? "Ask a question or request a change"
     : active === "group" || active === "Control" ? 'Ask a question, request a change, "run another round", or "new idea: ..."'
     : `Message ${who}: ask why, or request a change`;
-  const chips = started && (active === "group" || active === "Control")
+  const chips = started && firstRoundSent && (active === "group" || active === "Control")
     ? ["Run another round", "Set explore to 30%", "Send 5 per round", "Why this audience?"] : [];
   return (
     <div className="border-t border-line bg-panel p-3">
