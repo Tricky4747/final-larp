@@ -99,11 +99,35 @@ class Control:
             await self.say(f"Control task plan unavailable ({exc}); using the default sequence.", kind="status")
             return default
 
+    @staticmethod
+    def _validation_summary(report: str) -> str:
+        sections = []
+        lines = report.splitlines()
+        wanted = {"Final Recommendation", "Surprising Finding", "Risks and Assumptions"}
+        for index, line in enumerate(lines):
+            title = line.lstrip("# ").strip()
+            if title not in wanted:
+                continue
+            content = []
+            for following in lines[index + 1:]:
+                if following.lstrip().startswith("#"):
+                    break
+                if following.strip():
+                    content.append(following.strip(" -*"))
+            if content:
+                sections.append(" ".join(content))
+        if not sections:
+            sections = [line.strip(" -*") for line in lines if line.strip() and not line.startswith("#")][:3]
+        return " ".join(sections)[:700] or "The validation report did not include a summary."
+
     async def run_pipeline(self, idea: str):
         await self.ws.write("idea.md", f"# Idea\n{idea}", "founder")
         await self.say("Idea received. Starting validation.")
         await self.agents["validation"].run("Validate this idea.")
-        if "NO-GO" in self.ws.read("validation.md").upper():
+        validation_report = self.ws.read("validation.md")
+        verdict = "NO-GO" if "NO-GO" in validation_report.upper() else "GO"
+        await self.say(f"Validation said {verdict}. Here's a summary: {self._validation_summary(validation_report)}")
+        if verdict == "NO-GO":
             if not await self.gate("verdict", "Validation says NO-GO. Continue anyway?", "validation", file="validation.md"):
                 return
         await self.agents["planner"].run("Create the plan.")
