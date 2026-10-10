@@ -5,6 +5,7 @@ import { useStore } from "@/lib/store";
 import StatusLine from "./StatusLine";
 import ApprovalBubble from "./ApprovalBubble";
 import LinkCard from "./LinkCard";
+import Avatar from "../Avatar";
 
 export default function MessageBubble({ m }: { m: Message }) {
   if (m.kind === "status") return <StatusLine m={m} />;
@@ -21,7 +22,8 @@ export default function MessageBubble({ m }: { m: Message }) {
   }
   const me = m.sender === "founder";
   return (
-    <div className={`pop flex ${me ? "justify-end" : "justify-start"}`}>
+    <div className={`pop flex items-end gap-2 ${me ? "justify-end" : "justify-start"}`}>
+      {!me && <Avatar name={m.sender} size={28} />}
       <div className={`max-w-[80%] rounded-lg px-3 py-2 ${me ? "bg-mint" : "bg-raise"}`}>
         {!me && <div className="mb-0.5 text-xs font-semibold" style={{ color: agentColor(m.sender) }}>{m.sender}</div>}
         <p className="whitespace-pre-wrap break-words text-sm">{m.text}</p>

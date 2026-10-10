@@ -11,8 +11,8 @@ export default function IdeaInput() {
   const [err, setErr] = useState("");
   const active = useStore((s) => s.active);
   const started = useStore((s) => s.ideaSent);
-  const send = async () => {
-    const msg = text.trim();
+  const send = async (override?: string) => {
+    const msg = (override ?? text).trim();
     if (!msg || busy) return;
     setBusy(true); setErr("");
     const st = useStore.getState();
@@ -32,14 +32,21 @@ export default function IdeaInput() {
   const placeholder = !started ? "Describe your business idea"
     : active === "group" || active === "Control" ? 'Ask a question, request a change, "run another round", or "new idea: ..."'
     : `Message ${who}: ask why, or request a change`;
+  const chips = started && (active === "group" || active === "Control")
+    ? ["Run another round", "Set explore to 30%", "Send 5 per round", "Why this audience?"] : [];
   return (
     <div className="border-t border-line bg-panel p-3">
       {err && <p className="mb-2 text-xs text-red-300">{err}</p>}
+      {chips.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2" aria-label="Quick actions">
+          {chips.map((c) => <button key={c} disabled={busy} onClick={() => send(c)} className="rounded-full border border-line px-3 py-1 text-xs text-mute hover:text-text disabled:opacity-40">{c}</button>)}
+        </div>
+      )}
       <div className="flex gap-2">
         <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
           placeholder={placeholder} aria-label={started ? "Message" : "Business idea"}
           className="flex-1 rounded-lg bg-raise px-3 py-2 text-sm placeholder:text-mute" />
-        <button onClick={send} disabled={busy || !text.trim()} className="rounded-lg bg-amber px-4 text-sm font-medium text-ink disabled:opacity-40">{started ? "Send" : "Send idea"}</button>
+        <button onClick={() => send()} disabled={busy || !text.trim()} className="rounded-lg bg-amber px-4 text-sm font-medium text-ink disabled:opacity-40">{started ? "Send" : "Send idea"}</button>
       </div>
     </div>
   );

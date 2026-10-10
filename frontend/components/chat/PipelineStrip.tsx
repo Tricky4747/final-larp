@@ -5,7 +5,8 @@ import { STAGES, agentColor } from "@/lib/agentColors";
 export default function PipelineStrip() {
   const messages = useStore((s) => s.messages);
   const state = (st: string) => {
-    const done = messages.some((m) => m.sender === st && m.channel === "group" && m.kind === "message" && st !== "Control");
+    // An agent is done once it posts a result to the group or writes its file (LeadGen reports via file_update).
+    const done = st !== "Control" && messages.some((m) => m.sender === st && m.channel === "group" && (m.kind === "message" || m.kind === "file_update"));
     const started = messages.some((m) => m.sender === st);
     return done ? "done" : started ? "active" : "idle";
   };
