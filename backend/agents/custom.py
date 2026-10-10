@@ -11,6 +11,50 @@ from tools.deploy import deploy_html
 from tools.leads import find_leads
 
 
+_MARKET_FIELD_RE = re.compile(
+    r"(?im)^\s*(?:[-*]\s*)?"
+    r"(?:target (?:geographic )?market|geographic focus|geography|"
+    r"service area|location)\s*:\s*(.+?)\s*$"
+)
+_MARKET_HEADING_RE = re.compile(
+    r"(?im)^\s{0,3}#{1,6}\s*(?:target market|geographic focus|"
+    r"geography|service area|location)\s*:?\s*$"
+)
+_GEOGRAPHIC_CUE_RE = re.compile(
+    r"\b(?:in|across|throughout|within|serving|based in|focused on)\s+"
+    r"((?:the\s+)?[A-Z][A-Za-z.'’-]*"
+    r"(?:(?:\s+(?:of|the|and|&)?\s*|,\s*)[A-Z][A-Za-z.'’-]*){0,4})"
+)
+_UNSPECIFIED_MARKET_RE = re.compile(
+    r"\b(?:not specified|unspecified|not provided|not stated|unknown|anywhere)\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_target_market(plan: str, idea: str) -> str | None:
+    for document in (plan, idea):
+        field = _MARKET_FIELD_RE.search(document)
+        if field:
+            market = field.group(1).strip(" .")
+            if market and not _UNSPECIFIED_MARKET_RE.search(market):
+                return market
+
+        for heading in _MARKET_HEADING_RE.finditer(document):
+            section = document[heading.end():]
+            next_heading = re.search(r"(?m)^\s{0,3}#{1,6}\s+", section)
+            if next_heading:
+                section = section[:next_heading.start()]
+            cue = _GEOGRAPHIC_CUE_RE.search(section)
+            if cue and not _UNSPECIFIED_MARKET_RE.search(cue.group(1)):
+                return cue.group(1).strip(" .")
+
+    for document in (plan, idea):
+        cue = _GEOGRAPHIC_CUE_RE.search(document)
+        if cue and not _UNSPECIFIED_MARKET_RE.search(cue.group(1)):
+            return cue.group(1).strip(" .")
+    return None
+
+
 class ValidationAgent(Agent):
     async def gather(self, task):
         # Read the founder's business idea.
@@ -201,22 +245,36 @@ class MarketingAgent(Agent):                # OWNER: Person D
             variant = variants[key]
             if (
                 not isinstance(variant, dict)
-                or set(variant) != {"angle", "text"}
+                or set(variant) != {"angle", "subject", "text"}
                 or variant["angle"] != angle
+                or not isinstance(variant["subject"], str)
+                or not variant["subject"].strip()
+                or "\r" in variant["subject"]
+                or "\n" in variant["subject"]
+                or len(variant["subject"].split()) > 8
                 or not isinstance(variant["text"], str)
                 or not variant["text"].strip()
             ):
                 raise ValueError(
-                    f"Variant {key} must contain its expected angle and non-empty text."
+                    f"Variant {key} must contain its expected angle, a subject "
+                    "of at most 8 words without line breaks, and non-empty text."
                 )
             words = variant["text"].split()
             if len(words) >= 60:
                 raise ValueError(f"Variant {key} must be under 60 words.")
-            if "{name}" not in variant["text"] or "{why}" not in variant["text"]:
+            if "{why}" in variant["text"]:
                 raise ValueError(
-                    f"Variant {key} must retain the {{name}} and {{why}} placeholders."
+                    f"Variant {key} must not use the {{why}} placeholder."
+                )
+            if any(
+                placeholder not in variant["text"]
+                for placeholder in ("{name}", "{offer}", "{link}")
+            ):
+                raise ValueError(
+                    f"Variant {key} must use {{name}}, {{offer}}, and {{link}}."
                 )
             variant["text"] = variant["text"].strip()
+            variant["subject"] = variant["subject"].strip()
         return json.dumps(variants, ensure_ascii=False, indent=2)
 
 class LeadGenAgent(Agent):                  # OWNER: Person D
@@ -232,10 +290,28 @@ class LeadGenAgent(Agent):                  # OWNER: Person D
             channel=self.name,
             kind="status",
         )
-        leads = await find_leads(query=self.ws.read("plan.md")[:200], location="Chennai", n=10)
+        plan = self.ws.read("plan.md").strip()
+        idea = self.ws.read("idea.md").strip()
+        target_market = _extract_target_market(plan, idea)
+        if target_market is None:
+            target_market = "Kerala"
+            await self.say(
+                "No geographic target market was specified in the idea or plan; "
+                "defaulting lead searches to Kerala.",
+                channel=self.name,
+                kind="status",
+            )
+        leads = await find_leads(
+            query=(plan or idea)[:200],
+            location=target_market,
+            n=10,
+        )
         self._discovered_leads.set(tuple(leads))
         if not leads:
-            return "No matching public Reddit posts were found."
+            return (
+                "Tavily found no matching public business websites with "
+                "published contact emails."
+            )
         return "\n".join(
             f"- {lead['name']} | {lead['handle']} | {lead['why']}"
             for lead in leads
@@ -250,7 +326,8 @@ class LeadGenAgent(Agent):                  # OWNER: Person D
         leads = self._discovered_leads.get()
         if not leads:
             await self.say(
-                "No matching public business leads were found; leads.md contains the empty results table."
+                "Tavily found no matching public business websites with "
+                "published contact emails; leads.md contains the empty results table."
             )
         for lead in leads:
             values = [

@@ -4,8 +4,10 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -27,13 +29,33 @@ SENDER_DIRECTORY = PROJECT_ROOT / "sender"
 RESULTS_FILE = SENDER_DIRECTORY / "results.json"
 OPT_OUTS_FILE = SENDER_DIRECTORY / "opt-outs.json"
 VARIANTS_FILE = PROJECT_ROOT / "backend" / "workspace" / "variants.json"
+LANDING_PAGE_FILE = PROJECT_ROOT / "backend" / "workspace" / "landing.md"
 
 
-def _message_from_variant(
+def _landing_page_url_from_workspace() -> str | None:
+    try:
+        landing_content = LANDING_PAGE_FILE.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise RuntimeError(
+            f"Cannot read landing page workspace file: {LANDING_PAGE_FILE}."
+        ) from exc
+
+    match = re.search(
+        rb"<!--\s*live:\s*(https://[^\s>]+)\s*-->",
+        landing_content,
+        re.IGNORECASE,
+    )
+    return match.group(1).decode("ascii") if match else None
+
+
+def _personalized_variant_from_json(
     lead: dict[str, Any],
     variant_key: str,
     variants_file: str | Path | None = None,
-) -> str:
+    landing_url: str | None = None,
+) -> tuple[str, str]:
     if not isinstance(variant_key, str) or variant_key not in {"A", "B", "C", "D", "E", "F"}:
         raise ValueError("variant must be one of A, B, C, D, E, or F.")
     source = Path(variants_file) if variants_file is not None else VARIANTS_FILE
@@ -60,25 +82,63 @@ def _message_from_variant(
     }
     if (
         not isinstance(selected, dict)
-        or set(selected) != {"angle", "text"}
+        or set(selected) != {"angle", "subject", "text"}
         or selected["angle"] != expected_angles[variant_key]
+        or not isinstance(selected["subject"], str)
+        or not selected["subject"].strip()
+        or "\r" in selected["subject"]
+        or "\n" in selected["subject"]
+        or len(selected["subject"].split()) > 8
         or not isinstance(selected["text"], str)
         or not selected["text"].strip()
     ):
         raise ValueError(
-            f"Variant {variant_key} must contain the expected angle and non-empty text."
+            f"Variant {variant_key} must contain the expected angle, a subject "
+            "of at most 8 words without line breaks, and non-empty text."
         )
 
     name = lead.get("name")
-    reason = lead.get("why")
     if not isinstance(name, str) or not name.strip():
         name = "there"
-    if not isinstance(reason, str) or not reason.strip():
-        reason = "your post about career and skill development"
+    offer = lead.get("offer")
+    if not isinstance(offer, str) or not offer.strip():
+        raise ValueError("Provide the business offer for {offer} personalization.")
     message = selected["text"]
-    if "{name}" not in message or "{why}" not in message:
-        raise ValueError(f"Variant {variant_key} must include {{name}} and {{why}}.")
-    return message.replace("{name}", name.strip()).replace("{why}", reason.strip())
+    if "{why}" in message:
+        raise ValueError(
+            f"Variant {variant_key} still uses the retired {{why}} placeholder. "
+            "Regenerate variants.json before sending."
+        )
+    if "{name}" not in message or "{offer}" not in message:
+        raise ValueError(
+            f"Variant {variant_key} must include {{name}} and {{offer}}."
+        )
+    if not isinstance(landing_url, str) or not landing_url.strip():
+        raise ValueError(
+            "A deployed landing page URL is required to fill the {link} placeholder."
+        )
+    message = message.replace("{name}", name.strip()).replace(
+        "{offer}", " ".join(offer.split())
+    )
+    if "{link}" in message:
+        message = message.replace("{link}", landing_url.strip())
+    else:
+        message = f"{message.rstrip()}\n\n{landing_url.strip()}"
+    return (
+        selected["subject"].strip(),
+        message,
+    )
+
+
+def _message_from_variant(
+    lead: dict[str, Any],
+    variant_key: str,
+    variants_file: str | Path | None = None,
+    landing_url: str | None = None,
+) -> str:
+    return _personalized_variant_from_json(
+        lead, variant_key, variants_file, landing_url
+    )[1]
 
 
 def _send_test_email(
@@ -162,7 +222,8 @@ async def send_dm(
     *,
     variant: str | None = None,
     variants_file: str | Path | None = None,
-    subject: str = "A quick introduction",
+    landing_url: str | None = None,
+    subject: str | None = None,
     dry_run: bool = True,
     compliance_confirmed: bool = False,
 ) -> dict[str, Any]:
@@ -173,12 +234,38 @@ async def send_dm(
     """
     if not isinstance(lead, dict):
         raise TypeError("lead must be a dictionary.")
+    if landing_url is None:
+        landing_url = _landing_page_url_from_workspace()
+    if landing_url is not None:
+        if not isinstance(landing_url, str):
+            raise TypeError("landing_url must be a string or None.")
+        landing_url = landing_url.strip()
+        parsed_url = urlsplit(landing_url)
+        if (
+            parsed_url.scheme != "https"
+            or not parsed_url.hostname
+            or parsed_url.username
+            or parsed_url.password
+            or any(char.isspace() for char in landing_url)
+            or "\r" in landing_url
+            or "\n" in landing_url
+        ):
+            raise ValueError("landing_url must be an absolute HTTPS URL.")
     if variant is not None:
         if text is not None:
             raise ValueError("Provide either text or variant, not both.")
-        text = _message_from_variant(lead, variant, variants_file)
+        subject, text = _personalized_variant_from_json(
+            lead, variant, variants_file, landing_url
+        )
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Provide non-empty text or a variant key from variants.json.")
+    if variant is None and landing_url is not None:
+        if "{link}" in text:
+            text = text.replace("{link}", landing_url)
+        else:
+            text = f"{text.rstrip()}\n\n{landing_url}"
+    if subject is None:
+        subject = "A quick introduction"
     if not isinstance(subject, str) or not subject.strip():
         raise ValueError("subject must be non-empty.")
     if not isinstance(dry_run, bool):

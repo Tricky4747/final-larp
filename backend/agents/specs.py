@@ -124,7 +124,10 @@ SPECS = {
 
     # Audience
     Describe the primary target customers, their needs, and the
-    problem the business intends to solve.
+    problem the business intends to solve. Include the geographic
+    target market only when it is supported by the founder's idea or
+    validation evidence. If none is specified, explicitly say that
+    the geographic target market is not specified; do not invent one.
 
     # Design philosophy
     Specify the visual direction, suggested colours, tone, layout,
@@ -308,28 +311,44 @@ SPECS = {
             "the plan, leads, and lessons. Return only valid JSON: no Markdown "
             "fences, labels, or commentary. The JSON must be an object with "
             "for the initial set, use exactly these keys and this schema: "
-            '{"A":{"angle":"pain-point","text":"..."},'
-            '"B":{"angle":"social-proof","text":"..."},'
-            '"C":{"angle":"question","text":"..."},'
-            '"D":{"angle":"offer-first","text":"..."}}. '
-            "Each text must be non-empty, under 60 words, and contain the "
-            "literal {name} and {why} placeholders. Do not invent customer "
+            '{"A":{"angle":"pain-point","subject":"...","text":"..."},'
+            '"B":{"angle":"social-proof","subject":"...","text":"..."},'
+            '"C":{"angle":"question","subject":"...","text":"..."},'
+            '"D":{"angle":"offer-first","subject":"...","text":"..."}}. '
+            "Give each variant a distinct, concise subject of 2-8 words "
+            "that fits its angle and the business idea. Do not include "
+            "placeholders or line breaks in subjects. Each text must be a "
+            "well-formatted plain-text email body under 60 words, start with "
+            "'Hi {name},', put a blank line after the greeting, and use blank "
+            "lines between paragraphs. Include the literal {name}, {offer}, "
+            "and {link} placeholders. {offer} is a concise description of the "
+            "founder's actual product or service and must appear naturally. "
+            "End every email with a short call to action and the {link} "
+            "placeholder on its own final line; the sender fills it with the "
+            "live landing page URL. "
+            "Never include a {why} placeholder or internal lead-search notes, "
+            "source descriptions, or contact-discovery rationale. Do not invent customer "
             "interest, testimonials, results, or other social proof. When the "
             "task asks for challenger variants, include A-D plus E with angle "
             "curiosity-led and F with angle proof-led, using the same object "
-            "shape and placeholders for all six variants."
+            "shape, subject rules, and body-format rules for all six variants."
         ),
         reads=["plan.md", "leads.md", "lessons.md"], writes="variants.json",
         mock=(
-            '{"A":{"angle":"pain-point","text":"Hi {name}, I noticed {why}. '
-            'Would it help to explore a practical way to address this?"},'
-            '"B":{"angle":"social-proof","text":"Hi {name}, {why}. We are '
-            'exploring a helpful approach and would value your perspective. '
-            'Would you be open to hearing more?"},'
-            '"C":{"angle":"question","text":"Hi {name}, {why}. What is your '
-            'biggest challenge with this right now?"},'
-            '"D":{"angle":"offer-first","text":"Hi {name}, based on {why}, '
-            'I can share a brief overview of our idea. Would that be useful?"}}'
+            '{"A":{"angle":"pain-point","subject":"A practical idea for you",'
+            '"text":"Hi {name},\\n\\nI am reaching out about {offer}. '
+            'Would improving this be useful to your team?\\n\\n{link}"},'
+            '"B":{"angle":"social-proof","subject":"An approach worth exploring",'
+            '"text":"Hi {name},\\n\\n{offer} may be relevant to your team. '
+            'I would value your perspective on this approach.\\n\\n'
+            'Would you be open to a brief conversation?\\n\\n{link}"},'
+            '"C":{"angle":"question","subject":"A quick question",'
+            '"text":"Hi {name},\\n\\nI am exploring {offer}. '
+            'Is this a challenge your team is working on?\\n\\n{link}"},'
+            '"D":{"angle":"offer-first","subject":"A useful idea to share",'
+            '"text":"Hi {name},\\n\\n{offer} is what I am building, and '
+            'I can share a short overview of how it may help your team.\\n\\n'
+            'Would that be useful?\\n\\n{link}"}}'
         ),
     ),
 }

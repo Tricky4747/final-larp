@@ -7,6 +7,8 @@ import logging
 import os
 from urllib.parse import urlparse
 
+from llm import is_configured
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,7 +21,7 @@ def _mock_mode() -> bool:
             "1", "true", "yes", "on"
         }
 
-    return not bool(os.getenv("GEMINI_API_KEY"))
+    return not is_configured()
 
 
 async def web_search(query: str, n: int = 5) -> list[dict]:

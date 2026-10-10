@@ -58,8 +58,16 @@ class Experiments:
         return max(eligible, key=lambda k: eligible[k]["rate"]) if eligible else None
 
     def allocate(self, n_leads: int) -> list[str]:
-        """Return a variant for each lead: ~80% winner, ~20% spread over the rest."""
-        variants = list(self._active_stats()); w = self.winner()
-        if not w: return [random.choice(variants) for _ in range(n_leads)]  # no winner yet: explore evenly
-        others = [v for v in variants if v != w] or [w]
-        return [random.choice(others) if random.random() < self.epsilon else w for _ in range(n_leads)]
+        """Cycle through EVERY registered variant (retired flags are ignored), always
+        handing the next send to the variant with the fewest sends so far, so rotation
+        continues across rounds instead of collapsing onto one winner."""
+        self._refresh_if_replaced()
+        counts = {r[0]: r[1] for r in self.db.execute("SELECT variant, sends FROM v")}
+        if n_leads <= 0 or not counts:
+            return []
+        allocation = []
+        for _ in range(n_leads):
+            pick = min(sorted(counts), key=lambda k: counts[k])
+            allocation.append(pick)
+            counts[pick] += 1
+        return allocation
