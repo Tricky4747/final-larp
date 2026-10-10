@@ -66,17 +66,18 @@ CORS is open, so the frontend can call from any port.
 | `plan.md` | Planner | everyone | sections: Audience, Design philosophy, Marketing philosophy, Tasks |
 | `landing.md` | LandingPage | none | first line `<!-- live: URL -->`, then the HTML |
 | `leads.md` | LeadGen | Marketing, Control | **markdown table with exact header `\| name \| handle \| contact \| why \|`** |
-| `variants.json` | Marketing | Control | **JSON object with A-D keys**, each containing its fixed `angle` and a `text` template with `{name}` and `{why}` placeholders |
+| `variants.json` | Marketing | Control, outreach | **JSON object with A-D keys** (optionally E-F challenger keys), each containing an `angle` and a `text` template with `{name}` and `{why}` placeholders |
 | `experiments.md` | Control | none | appended per round |
 | `lessons.md` | Control | Planner, Marketing | appended per round |
 
-The LeadGen agent writes tool-discovered public posts to the exact `leads.md`
-table format; it does not invent rows from the model response. Its structured
-source output remains in `tools/leads.json`. The Marketing agent validates and
-writes `variants.json` as structured JSON. The current Control flow gates on
-that file but still simulates sending and replies; it does not select variants
-or deliver real outreach. `tools/outreach.py` is a separately callable,
-sandbox-only Gmail adapter and cannot message Reddit handles.
+The LeadGen agent uses Tavily web search to find public business sites and
+published contact emails; it does not use Reddit posts or fall back to other
+search providers. Its structured source output remains in `tools/leads.json`.
+The Marketing agent validates and writes `variants.json` as structured JSON.
+Control reads those variants and delegates approved sends to `tools/outreach.py`;
+delivery is restricted to the configured sandbox inbox. Experiment replies
+remain simulated. The sender cannot message social handles or infer email
+addresses from them.
 
 ## How agents work
 An agent is an `AgentSpec` (name, system prompt, files it `reads`, file it `writes`, mock output) in `agents/specs.py`. Generic `Agent.run()` does: status message → `gather()` → LLM call with the md files as context → `finalize()` → write md file → "Done" message.
@@ -171,7 +172,7 @@ Register it in the `CUSTOM` dict at the bottom of `agents/custom.py`. Control pi
 
 # PERSON B (you): checklist
 - [ ] Push scaffold; send everyone this file
-- [ ] Parse `leads.md` and `variants.md` in `control.py` and use them in `run_round` (replace simulated sends when D's tools are ready)
+- [x] Use `leads.md` and `variants.json` in outreach rounds; live email remains restricted to the configured sandbox inbox
 - [ ] Add Chroma retrieval for `validation.md` / `lessons.md` instead of reading whole files
 - [ ] Cache each pipeline stage so a crash resumes instead of restarting
 - [ ] Record one full successful run as the demo fallback

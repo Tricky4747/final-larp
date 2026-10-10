@@ -45,6 +45,18 @@ class MarketingVariantsTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "placeholders"):
             await agent.finalize(json.dumps(output))
 
+    async def test_marketing_agent_accepts_challengers_with_expected_json_angles(self):
+        agent = MarketingAgent(SPECS["marketing"], Workspace(), Bus())
+        variants = json.loads(SPECS["marketing"].mock)
+        variants.update({
+            "E": {"angle": "curiosity-led", "text": "Hi {name}, {why}. What would you change?"},
+            "F": {"angle": "proof-led", "text": "Hi {name}, {why}. May I share an overview?"},
+        })
+
+        saved = json.loads(await agent.finalize(json.dumps(variants)))
+
+        self.assertEqual(set(saved), {"A", "B", "C", "D", "E", "F"})
+
 
 if __name__ == "__main__":
     unittest.main()

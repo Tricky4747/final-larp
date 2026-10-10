@@ -109,6 +109,38 @@ class LandingPageAgent(Agent):
             out.strip(),
             flags=re.MULTILINE | re.IGNORECASE,
         ).strip()
+        
+        lower_html = html.lower()
+
+        required_tags = [
+            "<!doctype html",
+            "<html",
+            "<head",
+            "</head>",
+            "<body",
+            "</body>",
+            "</html>",
+        ]
+
+        styles_complete = (
+            lower_html.count("<style")
+            == lower_html.count("</style>")
+        )
+
+        if (
+            not all(tag in lower_html for tag in required_tags)
+            or not styles_complete
+        ):
+            await self.bus.post(
+                Message(
+                    sender=self.name,
+                    text=(
+                        "Landing page HTML is incomplete. "
+                        "It was not deployed; regenerate the page."
+                    ),
+                )
+            )
+            return f"<!-- live: UNDEPLOYED -->\n{html}"
 
         # Create a name for the deployed website.
         idea = self.ws.read("idea.md").replace("# Idea", "").strip()
@@ -159,8 +191,11 @@ class MarketingAgent(Agent):                # OWNER: Person D
             "C": "question",
             "D": "offer-first",
         }
-        if not isinstance(variants, dict) or set(variants) != set(expected):
-            raise ValueError("variants.json must contain exactly variants A, B, C, and D.")
+        valid_key_sets = (set(expected), set(expected) | {"E", "F"})
+        if not isinstance(variants, dict) or set(variants) not in valid_key_sets:
+            raise ValueError("variants.json must contain A-D, optionally with both E and F.")
+        if "E" in variants:
+            expected.update({"E": "curiosity-led", "F": "proof-led"})
 
         for key, angle in expected.items():
             variant = variants[key]
@@ -192,7 +227,11 @@ class LeadGenAgent(Agent):                  # OWNER: Person D
         )
 
     async def gather(self, task):
-        await self.say("Searching public Reddit posts...", channel=self.name, kind="status")
+        await self.say(
+            "Searching with Tavily for public business websites and published contact emails...",
+            channel=self.name,
+            kind="status",
+        )
         leads = await find_leads(query=self.ws.read("plan.md")[:200], location="Chennai", n=10)
         self._discovered_leads.set(tuple(leads))
         if not leads:
@@ -211,7 +250,7 @@ class LeadGenAgent(Agent):                  # OWNER: Person D
         leads = self._discovered_leads.get()
         if not leads:
             await self.say(
-                "No matching public posts were found; leads.md contains the empty results table."
+                "No matching public business leads were found; leads.md contains the empty results table."
             )
         for lead in leads:
             values = [

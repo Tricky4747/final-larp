@@ -111,6 +111,21 @@ class TestValidationAndSearch(unittest.TestCase):
                 self.assertEqual(len(results), 1)
                 mock_tavily.assert_called_once()
 
+    def test_search_requires_tavily_key_and_does_not_use_alternatives(self):
+        target_mod = "backend.tools.leads" if "backend.tools.leads" in sys.modules else "tools.leads"
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "", "BRAVE_API_KEY": "ignored"}):
+            with patch(f"{target_mod}._tavily_search") as mock_tavily:
+                with self.assertRaisesRegex(RuntimeError, "Tavily is the only"):
+                    _search("catering Chennai")
+                mock_tavily.assert_not_called()
+
+    def test_tavily_empty_results_are_returned_without_fallback(self):
+        target_mod = "backend.tools.leads" if "backend.tools.leads" in sys.modules else "tools.leads"
+        with patch.dict("os.environ", {"TAVILY_API_KEY": "fake-tavily-key"}):
+            with patch(f"{target_mod}._tavily_search", return_value=[]) as mock_tavily:
+                self.assertEqual(_search("catering Chennai"), [])
+                mock_tavily.assert_called_once()
+
 
 class TestDiscoveryWorkflow(unittest.TestCase):
     def test_discover_merges_and_saves_leads(self):

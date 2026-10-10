@@ -75,7 +75,14 @@ class Agent:
     async def _run(self, task: str) -> str:
         await self.say(f"On it: {task[:80]}", channel=self.name, kind="status")
         extra = await self.gather(task)
-        out = await complete(self.spec.system_prompt, self.build_context(task, extra), mock=self.spec.mock)
+        max_tokens = 12000 if self.spec.writes == "landing.md" else 4000
+
+        out = await complete(
+            self.spec.system_prompt,
+            self.build_context(task, extra),
+            mock=self.spec.mock,
+            max_tokens=max_tokens,
+        )
         out = await self.finalize(out)
         if self.spec.writes:
             await self.ws.write(self.spec.writes, out, self.name)

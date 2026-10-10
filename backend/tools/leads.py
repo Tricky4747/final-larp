@@ -1,14 +1,4 @@
-"""Find businesses via web search and collect the contact emails they publish on their own sites.
-
-Pipeline: search -> drop directories/social -> visit homepage + contact/about pages
--> extract emails -> keep leads that have one -> merge into leads.json.
-
-Search backend, first one configured wins (keys are read from the environment or a .env file):
-  1. TAVILY_API_KEY -> Tavily Search API
-  2. BRAVE_API_KEY  -> Brave Search API
-  3. otherwise      -> DuckDuckGo via the `ddgs` package (pip install ddgs; rate limited)
-If the chosen API fails or returns nothing, the next backend is tried.
-"""
+"""Find businesses with Tavily and collect emails published on their own sites."""
 
 import asyncio
 import json
@@ -19,7 +9,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from html import unescape
 from pathlib import Path
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 from urllib.robotparser import RobotFileParser
 
@@ -117,73 +107,22 @@ def _tavily_search(query: str, api_key: str) -> list[dict[str, str]]:
             data = json.loads(response.read())
     except Exception as exc:  # bad key, quota, network: caller falls back to another backend
         logger.warning("Tavily search failed for %r: %s", query, exc)
-        return []
+        raise LeadSearchError(
+            f"Tavily search failed ({type(exc).__name__}); check the API key, quota, and network."
+        ) from exc
     return [
         {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("content", "")}
         for r in data.get("results", [])
     ]
 
 
-def _brave_search(query: str, pages: int, api_key: str) -> list[dict[str, str]]:
-    out: list[dict[str, str]] = []
-    for page in range(pages):
-        url = f"https://api.search.brave.com/res/v1/web/search?q={quote(query)}&count=20&offset={page}"
-        request = Request(
-            url,
-            headers={"Accept": "application/json", "X-Subscription-Token": api_key, "User-Agent": USER_AGENT},
-        )
-        try:
-            with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                data = json.loads(response.read())
-        except Exception as exc:  # network/HTTP/JSON: stop paging, keep what we have
-            logger.warning("Brave search failed for %r (page %d): %s", query, page, exc)
-            break
-        results = data.get("web", {}).get("results", [])
-        if not results:
-            break
-        out.extend(
-            {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("description", "")}
-            for r in results
-        )
-    return out
-
-
-def _ddg_search(query: str, max_results: int) -> list[dict[str, str]]:
-    try:
-        from ddgs import DDGS
-    except ImportError:
-        try:
-            from duckduckgo_search import DDGS
-        except ImportError as exc:
-            raise LeadSearchError(
-                "No search backend available: set TAVILY_API_KEY (or BRAVE_API_KEY) in .env, or pip install ddgs."
-            ) from exc
-    try:
-        rows = DDGS().text(query, max_results=max_results)
-    except Exception as exc:
-        logger.warning("DuckDuckGo search failed for %r: %s", query, exc)
-        return []
-    return [{"title": r.get("title", ""), "url": r.get("href", ""), "snippet": r.get("body", "")} for r in rows]
-
-
 def _search(query: str) -> list[dict[str, str]]:
     tavily_key = os.environ.get("TAVILY_API_KEY", "").strip()
-    if tavily_key:
-        results = _tavily_search(query, tavily_key)
-        if results:
-            return results
-    brave_key = os.environ.get("BRAVE_API_KEY", "").strip()
-    if brave_key:
-        results = _brave_search(query, pages=3, api_key=brave_key)
-        if results:
-            return results
-    if tavily_key or brave_key:
-        # If API keys are configured but returned 0 results, try DDG only if available
-        try:
-            return _ddg_search(query, max_results=40)
-        except LeadSearchError:
-            return []
-    return _ddg_search(query, max_results=40)
+    if not tavily_key:
+        raise LeadSearchError(
+            "Tavily is the only lead-search provider. Set TAVILY_API_KEY in the repository .env.local file."
+        )
+    return _tavily_search(query, tavily_key)
 
 
 # ---------------------------------------------------------------- fetching

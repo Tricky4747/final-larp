@@ -187,8 +187,37 @@ class OutreachSenderTests(unittest.TestCase):
         )
 
     def test_invalid_variant_is_rejected(self):
-        with self.assertRaisesRegex(ValueError, "A, B, C, or D"):
-            _message_from_variant(TEST_LEAD, "E")
+        variants = {
+            "A": {"angle": "pain-point", "text": "Hi {name}, {why}"},
+            "B": {"angle": "social-proof", "text": "Hi {name}, {why}"},
+            "C": {"angle": "question", "text": "Hi {name}, {why}"},
+            "D": {"angle": "offer-first", "text": "Hi {name}, {why}"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            variants_file = Path(directory) / "variants.json"
+            variants_file.write_text(json.dumps(variants), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "not present"):
+                _message_from_variant(TEST_LEAD, "E", variants_file)
+
+    def test_challenger_variant_is_loaded_from_json(self):
+        variants = {
+            "A": {"angle": "pain-point", "text": "Hi {name}, {why}"},
+            "B": {"angle": "social-proof", "text": "Hi {name}, {why}"},
+            "C": {"angle": "question", "text": "Hi {name}, {why}"},
+            "D": {"angle": "offer-first", "text": "Hi {name}, {why}"},
+            "E": {"angle": "curiosity-led", "text": "Hi {name}, {why}"},
+            "F": {"angle": "proof-led", "text": "Hi {name}, {why}"},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            variants_file = Path(directory) / "variants.json"
+            variants_file.write_text(json.dumps(variants), encoding="utf-8")
+            result = _message_from_variant(
+                {"name": "Jamie", "why": "you requested practical advice"},
+                "E",
+                variants_file,
+            )
+
+        self.assertEqual(result, "Hi Jamie, you requested practical advice")
 
 
 if __name__ == "__main__":
