@@ -40,7 +40,7 @@ Founder (WhatsApp-style UI)
 ## Quick start
 
 ```bash
-git clone <repo-url>
+git clone [<repo-url>](https://github.com/Tricky4747/final-larp)
 cd <repo>
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
