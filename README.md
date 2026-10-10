@@ -1,4 +1,4 @@
-<img width="2172" height="724" alt="banner" src="https://github.com/user-attachments/assets/fb978f1a-25a7-4162-99b7-50e7e22e90b2" />
+<img width="2172" height="724" alt="White Sigma Ppsilon Logo" src="https://github.com/user-attachments/assets/bf321727-100c-433f-94a9-35093afaac06" />
 
 # Epsilon
 
