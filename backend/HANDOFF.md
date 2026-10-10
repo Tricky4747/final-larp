@@ -1,6 +1,6 @@
 # Team Handoff: Business Agent Platform
 
-Founder drops an idea → agents validate it, plan it, ship a landing page, find leads, DM them, and learn which DM style works (80% exploit / 20% explore). All agents share state through `workspace/*.md`.
+Founder drops an idea → agents validate it, plan it, ship a landing page, find leads, email them, and learn which message style works (80% exploit / 20% explore, with every active variant represented in each sufficiently large batch). All agents share state through `workspace/*.md`.
 
 **Everything runs in mock mode with no API keys.** Build your slice against mocks first, then swap in the real thing.
 
@@ -11,6 +11,20 @@ python run_cli.py                  # whole pipeline, no UI
 uvicorn main:app --reload          # API on :8000 for the frontend
 export GEMINI_API_KEY=...          # turns on real LLM output (never commit keys)
 ```
+
+To use Apmix's OpenAI-compatible API instead, put these settings in the
+repository-root `.env.local` and replace the placeholder with a rotated API
+key. Never commit or share the key:
+
+```dotenv
+LLM_PROVIDER=apmix
+APMIX_API_KEY=<your Apmix API key>
+APMIX_BASE_URL=https://api.apmix.ai/v1
+APMIX_MODEL=claude-sonnet-4-6-free
+```
+
+Gemini is the default provider. Set `LLM_PROVIDER=apmix` with `APMIX_API_KEY`
+to opt into Apmix explicitly.
 
 ## Branch rules
 `git checkout -b feature/<your-thing>`. Pull before you push. Don't edit files you don't own without telling the owner. `agents/specs.py` is shared: edit only your own agent's entry.
@@ -66,7 +80,7 @@ CORS is open, so the frontend can call from any port.
 | `plan.md` | Planner | everyone | sections: Audience, Design philosophy, Marketing philosophy, Tasks |
 | `landing.md` | LandingPage | none | first line `<!-- live: URL -->`, then the HTML |
 | `leads.md` | LeadGen | Marketing, Control | **markdown table with exact header `\| name \| handle \| contact \| why \|`** |
-| `variants.json` | Marketing | Control, outreach | **JSON object with A-D keys** (optionally E-F challenger keys), each containing an `angle` and a `text` template with `{name}` and `{why}` placeholders |
+| `variants.json` | Marketing | Control, outreach | **JSON object with A-D keys** (optionally E-F challenger keys), each containing an `angle`, a concise `subject`, and a formatted `text` body with `{name}`, `{offer}`, and `{link}` placeholders; never include `{why}` or internal lead-search notes in email copy |
 | `experiments.md` | Control | none | appended per round |
 | `lessons.md` | Control | Planner, Marketing | appended per round |
 
@@ -75,7 +89,10 @@ published contact emails; it does not use Reddit posts or fall back to other
 search providers. Its structured source output remains in `tools/leads.json`.
 The Marketing agent validates and writes `variants.json` as structured JSON.
 Control reads those variants and delegates approved sends to `tools/outreach.py`;
-delivery is restricted to the configured sandbox inbox. Experiment replies
+delivery is restricted to the configured sandbox inbox. Each round assigns
+different active variants across the batch before repeating any variant. The
+variant body must include `{name}`, `{offer}`, and `{link}`; outreach replaces
+`{link}` with the live HTTPS URL stored in `landing.md`. Experiment replies
 remain simulated. The sender cannot message social handles or infer email
 addresses from them.
 
@@ -161,8 +178,10 @@ Register it in the `CUSTOM` dict at the bottom of `agents/custom.py`. Control pi
 - **LeadGen** (`LeadGenAgent.gather` already calls `find_leads`): prompt must output **only** the markdown table with exact header `| name | handle | contact | why |`, and `why` should be a one-line personalization hook per lead (used by Marketing).
 - **Marketing:** prompt outputs `variants.json` with keys A-D and angles
   pain-point, social-proof, question, and offer-first. Each text is under 60
-  words and retains `{name}` and `{why}` placeholders. It reads `lessons.md`,
-  so in later rounds the winning style informs new variants.
+  words, starts with a greeting, and uses `{name}` and `{offer}` for the
+  recipient greeting and concise business idea. Do not put `{why}` or internal
+  lead-search notes in email copy. It reads `lessons.md`, so in later rounds
+  the winning style informs new variants.
 
 **Handoff to B:** once your tools work, tell Person B to replace `simulate_reply` in `control.py` with `send_dm` + `poll_replies`. Control already handles allocation (80/20), approval, and logging.
 

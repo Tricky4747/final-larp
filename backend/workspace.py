@@ -8,11 +8,17 @@ class Workspace:
 
     def read(self, name: str) -> str:
         p = self.root / name
-        return p.read_text() if p.exists() else ""
+        if not p.exists():
+            return ""
+        content = p.read_bytes()
+        try:
+            return content.decode("utf-8")
+        except UnicodeDecodeError:
+            return content.decode("cp1252")
 
     async def write(self, name: str, content: str, author: str):
         self.root.mkdir(parents=True, exist_ok=True)
-        (self.root / name).write_text(content)
+        (self.root / name).write_text(content, encoding="utf-8")
         if name.endswith(".md"):
             from memory import index
             index(name, content)
@@ -20,7 +26,11 @@ class Workspace:
 
     async def append(self, name: str, content: str, author: str):
         self.root.mkdir(parents=True, exist_ok=True)
-        with open(self.root / name, "a") as f: f.write("\n" + content)
+        path = self.root / name
+        path.write_text(
+            f"{self.read(name)}\n{content}",
+            encoding="utf-8",
+        )
         if name.endswith(".md"):
             from memory import index
             index(name, self.read(name))

@@ -2,6 +2,7 @@ fastapi
 uvicorn
 sse-starlette
 google-genai
+openai>=1.0,<3
 chromadb
 ddgs
 

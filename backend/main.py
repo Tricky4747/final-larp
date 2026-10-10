@@ -14,6 +14,21 @@ bus = Bus(); ws = Workspace(bus=bus); ctl = Control(ws, bus, auto_approve=False)
 
 chat = ChatRouter(ctl)
 
+
+async def _stream_messages(message_bus: Bus):
+    # Subscribe before replaying history so events posted during replay remain queued.
+    queue = message_bus.subscribe()
+    try:
+        history = list(message_bus.history)
+        for message in history:
+            yield {"data": json.dumps(message.to_dict())}
+        while True:
+            message = await queue.get()
+            yield {"data": json.dumps(message.to_dict())}
+    finally:
+        message_bus.unsubscribe(queue)
+
+
 @app.post("/idea")
 async def idea(body: dict):
     chat.start_pipeline(body["idea"]); return {"ok": True}
@@ -34,13 +49,7 @@ async def chat_endpoint(body: dict):
     
 @app.get("/stream")                      # SSE: every Message as JSON
 async def stream():
-    async def gen():
-        for m in bus.history: yield {"data": json.dumps(m.to_dict())}   # replay on reconnect
-        q = bus.subscribe()
-        try:
-            while True: yield {"data": json.dumps((await q.get()).to_dict())}
-        finally: bus.unsubscribe(q)
-    return EventSourceResponse(gen())
+    return EventSourceResponse(_stream_messages(bus))
 
 @app.get("/agents")                      # sidebar list
 def agents(): return [{"name": "Control"}] + [{"name": a.name} for a in ctl.agents.values()]

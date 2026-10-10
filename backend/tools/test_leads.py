@@ -101,6 +101,14 @@ class TestValidationAndSearch(unittest.TestCase):
             asyncio.run(find_leads("catering", "Chennai", -1))
         with self.assertRaises(ValueError):
             asyncio.run(find_leads("catering", "Chennai", True))  # type: ignore
+        with self.assertRaises(ValueError):
+            asyncio.run(find_leads("catering", " ", 5))
+
+    def test_location_is_optional(self):
+        target_mod = "backend.tools.leads" if "backend.tools.leads" in sys.modules else "tools.leads"
+        with patch(f"{target_mod}._discover", return_value=[]) as discover:
+            self.assertEqual(asyncio.run(find_leads("catering")), [])
+        discover.assert_called_once_with("catering", None, 20)
 
     def test_search_uses_tavily_when_configured(self):
         target_mod = "backend.tools.leads" if "backend.tools.leads" in sys.modules else "tools.leads"

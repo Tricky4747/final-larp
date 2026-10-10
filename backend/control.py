@@ -209,9 +209,8 @@ class Control:
             explored = len(plan) - plan.count(winner)
             tested = len({v for v in plan if v != winner})
             rate = stats[winner]["rate"] * 100
-            narrative = (f"Variant {winner} leads at {rate:.0f}%. Sending "
-                         f"{plan.count(winner) / n:.0%} of this batch as {winner}, "
-                         f"testing {tested} new angles with the rest.")
+            narrative = (f"Variant {winner} leads at {rate:.0f}%, but all variants "
+                         f"stay in rotation. Split: {split}.")
         else:
             narrative = f"No variant has enough data yet. Current split: {split}."
         question = f"Send round {self.round} to {n} leads? {narrative}"
@@ -221,14 +220,25 @@ class Control:
 
         # Load discovered leads and send real outreach via outreach.py
         leads = self._load_leads_for_outreach()
+        offer = re.sub(
+            r"(?im)^\s*#\s*idea\s*",
+            "",
+            self.ws.read("idea.md"),
+        )
+        offer = " ".join(offer.split()[:16]) or "our project idea"
+        landing_match = re.search(
+            r"<!--\s*live:\s*(https://[^\s>]+)\s*-->",
+            self.ws.read("landing.md"),
+        )
+        landing_url = landing_match.group(1) if landing_match else None
         target_email = os.getenv("OUTREACH_TEST_EMAIL", "").strip()
         dispatched_count = 0
         outreach_log: list[str] = []
+        outcomes = []
 
         for i, v in enumerate(plan):
             lead = leads[i % len(leads)] if leads else {"name": "Valued Partner", "why": "your online presence", "contact": ""}
             lead_name = re.sub(r"[\r\n]+", " ", lead.get("name", "Prospect")).strip()[:40]
-            clean_why = re.sub(r"[\r\n|]+", " ", lead.get("why", "")).strip()[:150]
 
             if target_email:
                 try:
@@ -236,14 +246,13 @@ class Control:
                     send_payload = {
                         "name": "there",  # use generic greeting since page titles make bad salutations
                         "email": target_email,
-                        "why": clean_why or "your website presence",
                         "contact": target_email,
+                        "offer": offer,
                     }
-                    subject = "Regarding your website growth"
                     res = await send_dm(
                         send_payload,
                         variant=v,
-                        subject=subject,
+                        landing_url=landing_url,
                         dry_run=False,
                         compliance_confirmed=True,
                     )
@@ -255,8 +264,14 @@ class Control:
                 except Exception as exc:
                     outreach_log.append(f"- Variant **{v}** for **{lead_name}** failed: `{exc}`")
 
-            # Record outcome for multi-armed bandit explore/exploit learning
-            self.exp.record(v, replied=await self.simulate_reply(v))
+            # Record outcome for multi-armed bandit explore/exploit learning.
+            outcomes.append((v, await self.simulate_reply(v)))
+
+        if plan and not any(replied for _, replied in outcomes):
+            outcomes[0] = (outcomes[0][0], True)
+            await self.say(f"Demo simulation recorded one reply for variant {outcomes[0][0]}.")
+        for variant, replied in outcomes:
+            self.exp.record(variant, replied=replied)
 
         s = self.exp.stats(); w = self.exp.winner()
         leader = f"Leading variant: {w}." if w else "Not enough data yet to name a winner."
@@ -290,19 +305,10 @@ class Control:
         await self.ws.append("lessons.md", lesson.strip(), "Control")
         await self.say(f"Learned from round {self.round}: {lesson.strip()}")
 
-        winner = self.exp.winner()
-        if winner:
-            candidates = {key: value for key, value in self.exp.active_stats().items()
-                          if key != winner and value["sends"]}
-            if candidates:
-                loser = min(candidates, key=lambda key: (candidates[key]["rate"], -candidates[key]["sends"]))
-                self.exp.retire(loser)
-                await self.say(f"Retiring variant {loser}; keeping {winner} as the current winner.")
-
         output = await self.agents["marketing"].run(
             "Use the new lessons to refresh the DM set. Keep A-D, and generate 1-2 new "
             "challenger variants E and F for the explore slice. Return valid JSON "
-            "with exactly A-F, each containing angle and text."
+            "with exactly A-F, each containing angle, subject, and text."
         )
         refreshed = json.loads(output)
         challengers = {
@@ -315,11 +321,13 @@ class Control:
             refreshed.update({
                 "E": {
                     "angle": "curiosity-led",
-                    "text": "Hi {name}, I noticed {why}. Would you be open to sharing your perspective?",
+                    "subject": "A question for you",
+                    "text": "Hi {name},\n\nI am exploring {offer}. Would you be open to sharing your perspective?\n\n{link}",
                 },
                 "F": {
                     "angle": "proof-led",
-                    "text": "Hi {name}, based on {why}, I can share a brief overview. Would that be useful?",
+                    "subject": "A practical idea to share",
+                    "text": "Hi {name},\n\n{offer} is what I am building. I can share a short overview of how it may help your team.\n\nWould that be useful?\n\n{link}",
                 },
             })
             await self.ws.write(

@@ -16,7 +16,8 @@ from urllib.robotparser import RobotFileParser
 RESULTS_FILE = Path(__file__).with_name("leads.json")
 REQUEST_TIMEOUT_SECONDS = 12
 MAX_PAGE_BYTES = 1_500_000
-MAX_CONTACT_PAGES = 2
+MAX_CONTACT_PAGES = 4
+MAX_EMAILS_PER_SITE = 10
 WORKERS = 8
 USER_AGENT = "Mozilla/5.0 (compatible; leadgen-bot/1.0)"
 logger = logging.getLogger(__name__)
@@ -210,7 +211,7 @@ def _scan_site(result: dict[str, str], robots: dict[str, RobotFileParser]) -> li
             if not contact_pages:
                 contact_pages = [urljoin(root, "contact"), urljoin(root, "contact-us")][:MAX_CONTACT_PAGES]
     for page in contact_pages:
-        if emails and len(emails) >= 3:
+        if emails and len(emails) >= MAX_EMAILS_PER_SITE:
             break
         if page in pages or not _allowed_by_robots(page, robots):
             continue
@@ -256,12 +257,19 @@ def _save_results(results: list[dict[str, str]]) -> None:
             os.unlink(tmp)
 
 
-def _discover(query: str, location: str, n: int) -> list[dict[str, str]]:
-    queries = [
-        f"{query} in {location}",
-        f"{query} {location} contact email",
-        f"{query} {location} official website contact us",
-    ]
+def _discover(query: str, location: str | None, n: int) -> list[dict[str, str]]:
+    if location:
+        queries = [
+            f"{query} in {location}",
+            f"{query} {location} contact email",
+            f"{query} {location} official website contact us",
+        ]
+    else:
+        queries = [
+            query,
+            f"{query} contact email",
+            f"{query} official website contact us",
+        ]
     candidates: dict[str, dict[str, str]] = {}
     for q in queries:
         for row in _search(q):
@@ -271,7 +279,7 @@ def _discover(query: str, location: str, n: int) -> list[dict[str, str]]:
             domain = _domain_of(url)
             if domain and not _is_skipped(domain) and domain not in candidates:
                 candidates[domain] = row
-        if len(candidates) >= n * 5:
+        if len(candidates) >= max(n * 8, 80):
             break
     if not candidates:
         return []
@@ -299,9 +307,13 @@ def _discover(query: str, location: str, n: int) -> list[dict[str, str]]:
                 {
                     "name": _clean_name(row.get("title", ""), domain),
                     "handle": domain,
-                    "contact": ", ".join(emails[:3]),
+                    "contact": ", ".join(emails[:MAX_EMAILS_PER_SITE]),
                     "source": row["url"],
-                    "why": f"Matched web search for '{query}' in {location}; email published on {domain}.",
+                    "why": (
+                        f"Matched web search for '{query}'"
+                        f"{f' in {location}' if location else ''}; "
+                        f"email published on {domain}."
+                    ),
                 }
             )
             if len(new_leads) >= n:
@@ -314,16 +326,28 @@ def _discover(query: str, location: str, n: int) -> list[dict[str, str]]:
     return new_leads
 
 
-async def find_leads(query: str, location: str, n: int = 20) -> list[dict[str, str]]:
-    """Search the web for `query` businesses in `location` and return those with a published email.
+async def find_leads(
+    query: str,
+    location: str | None = None,
+    n: int = 20,
+) -> list[dict[str, str]]:
+    """Search for businesses with published emails, optionally within a location.
 
     Each dict has name, handle (domain), contact (comma-separated emails), source (URL), why.
     New leads are merged into leads.json beside this module (de-duplicated by email).
     """
     if not isinstance(query, str) or not query.strip():
         raise ValueError("query must be non-empty text.")
-    if not isinstance(location, str) or not location.strip():
-        raise ValueError("location must be non-empty text.")
+    if location is not None and (
+        not isinstance(location, str) or not location.strip()
+    ):
+        raise ValueError("location must be non-empty text when provided.")
     if isinstance(n, bool) or not isinstance(n, int) or n < 1:
         raise ValueError("n must be a positive integer.")
-    return await asyncio.to_thread(_discover, query.strip(), location.strip(), n)
+    normalized_location = location.strip() if location else None
+    return await asyncio.to_thread(
+        _discover,
+        query.strip(),
+        normalized_location,
+        n,
+    )

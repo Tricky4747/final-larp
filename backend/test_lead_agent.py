@@ -6,13 +6,35 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from agents.custom import LeadGenAgent
+from agents.custom import LeadGenAgent, _extract_target_market
 from agents.specs import SPECS
 from bus import Bus
 from workspace import Workspace
 
 
 class LeadAgentWorkspaceTests(unittest.IsolatedAsyncioTestCase):
+    def test_extracts_market_from_plan_or_idea(self):
+        self.assertEqual(
+            _extract_target_market(
+                "# Audience\nSmall firms.\n\nGeographic focus: Pune, India",
+                "An unrelated idea.",
+            ),
+            "Pune, India",
+        )
+        self.assertEqual(
+            _extract_target_market(
+                "# Audience\nSmall firms in Austin, Texas.",
+                "A service for local businesses.",
+            ),
+            "Austin, Texas",
+        )
+        self.assertIsNone(
+            _extract_target_market(
+                "# Audience\nSmall firms.\n\nGeographic focus: not specified",
+                "A service for local businesses.",
+            )
+        )
+
     async def test_agent_writes_discovered_rows_to_shared_leads_markdown(self):
         lead = {
             "name": "Skills question?",
@@ -24,9 +46,14 @@ class LeadAgentWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             bus = Bus()
             workspace = Workspace(root=directory, bus=bus)
-            await workspace.write("plan.md", "Career coaching for professionals.", "founder")
+            await workspace.write(
+                "plan.md",
+                "# Audience\nCareer coaching for professionals.\n"
+                "Geographic focus: Pune, India",
+                "founder",
+            )
             agent = LeadGenAgent(SPECS["leads"], workspace, bus)
-            with patch("agents.custom.find_leads", new=AsyncMock(return_value=[lead])), patch(
+            with patch("agents.custom.find_leads", new=AsyncMock(return_value=[lead])) as find, patch(
                 "agent.complete", new=AsyncMock(return_value="hallucinated LLM row")
             ):
                 await agent.run("Find target leads.")
@@ -43,13 +70,16 @@ class LeadAgentWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[Source](https://www.reddit.com/r/careerguidance/comments/post/)", shared_content)
         self.assertNotIn("hallucinated LLM row", shared_content)
         self.assertEqual(len(updates), 1)
+        self.assertEqual(find.await_args.kwargs["location"], "Pune, India")
 
     async def test_empty_discovery_publishes_empty_table_and_group_message(self):
         with tempfile.TemporaryDirectory() as directory:
             bus = Bus()
             workspace = Workspace(root=directory, bus=bus)
+            await workspace.write("plan.md", "# Audience\nCareer coaching.", "founder")
+            await workspace.write("idea.md", "Career coaching.", "founder")
             agent = LeadGenAgent(SPECS["leads"], workspace, bus)
-            with patch("agents.custom.find_leads", new=AsyncMock(return_value=[])), patch(
+            with patch("agents.custom.find_leads", new=AsyncMock(return_value=[])) as find, patch(
                 "agent.complete", new=AsyncMock(return_value="fabricated lead")
             ):
                 await agent.run("Find target leads.")
@@ -62,10 +92,17 @@ class LeadAgentWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             any(
-                "No matching public posts" in message.text
+                "Tavily found no matching public business websites" in message.text
                 for message in bus.history
             )
         )
+        self.assertTrue(
+            any(
+                "defaulting lead searches to Kerala" in message.text
+                for message in bus.history
+            )
+        )
+        self.assertEqual(find.await_args.kwargs["location"], "Kerala")
 
     async def test_overlapping_runs_keep_discovery_results_task_local(self):
         def make_lead(name):

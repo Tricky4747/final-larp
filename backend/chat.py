@@ -5,9 +5,9 @@ Flow:  POST /chat {text, channel} -> ChatRouter.handle()
   channel = "group"/"Control" -> Control routes: answer | revise | round | setting | restart
 Routing uses the LLM when a key is set, and a keyword heuristic in mock mode (so you can test offline).
 """
-import asyncio, contextlib, json, os, re
+import asyncio, contextlib, json, re
 from bus import Message
-from llm import complete, parse_json
+from llm import complete, is_configured, parse_json
 
 # when an agent's output changes, these downstream agents may be stale
 DOWNSTREAM = {"validation": ["planner"], "planner": ["landing", "leads", "marketing"], "leads": ["marketing"]}
@@ -116,7 +116,7 @@ class ChatRouter:
 
     # ---------- routing ----------
     async def route(self, text, dm_key) -> dict:
-        if not (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")):
+        if not is_configured():
             d = heuristic(text, dm_key)
         else:
             ctx = f"Files: {self.ws.list()}\nAgents: {list(self.ctl.agents)}\nDM target: {dm_key}\nMessage: {text}"
