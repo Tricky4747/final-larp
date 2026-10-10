@@ -1,3 +1,4 @@
+<img width="2172" height="724" alt="banner" src="https://github.com/user-attachments/assets/fb978f1a-25a7-4162-99b7-50e7e22e90b2" />
 # Epsilon
 
 > A self-improving team of autonomous AI agents that validates your idea, launches it, and gets better at marketing it with every message.
@@ -40,7 +41,7 @@ Founder (WhatsApp-style UI)
 ## Quick start
 
 ```bash
-git clone [<repo-url>](https://github.com/Tricky4747/final-larp)
+git clone https://github.com/Tricky4747/final-larp
 cd <repo>
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
