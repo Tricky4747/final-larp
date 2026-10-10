@@ -1,4 +1,5 @@
 <img width="2172" height="724" alt="banner" src="https://github.com/user-attachments/assets/fb978f1a-25a7-4162-99b7-50e7e22e90b2" />
+
 # Epsilon
 
 > A self-improving team of autonomous AI agents that validates your idea, launches it, and gets better at marketing it with every message.
