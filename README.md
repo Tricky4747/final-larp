@@ -1,6 +1,6 @@
-# Business Agent Platform
+# Epsilon
 
-> Drop a business idea. A team of AI agents validates it, plans it, ships a real landing page, finds leads, DMs them, and learns which message style gets replies.
+> A self-improving team of autonomous AI agents that validates your idea, launches it, and gets better at marketing it with every message.
 
 Built for the hackathon, **Track 1: Autonomous AI Agents**.
 
