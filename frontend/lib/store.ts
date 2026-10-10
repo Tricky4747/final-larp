@@ -6,7 +6,7 @@ type S = {
   active: string; unread: Record<string, boolean>;
   agents: string[]; files: string[]; fileContents: Record<string, string>;
   flashing: Record<string, number>; openFile: string | null; tab: "files" | "experiments";
-  approvals: Record<string, "approved" | "rejected" | "changes">; ideaSent: boolean; experiments: Experiments; connected: boolean;
+  approvals: Record<string, "approved" | "rejected" | "changes">; ideaSent: boolean; autoRounds: number; batchSize: number; autoQueued: Record<number, true>; experiments: Experiments; connected: boolean;
   addMessage: (m: Message) => boolean;
   setActive: (c: string) => void;
   set: (p: Partial<S>) => void;
@@ -17,7 +17,7 @@ type S = {
 
 export const useStore = create<S>((set, get) => ({
   messages: [], seen: {}, active: "group", unread: {}, agents: [], files: [], fileContents: {},
-  flashing: {}, openFile: null, tab: "files", approvals: {}, ideaSent: false, experiments: {}, connected: false,
+  flashing: {}, openFile: null, tab: "files", approvals: {}, ideaSent: false, autoRounds: 2, batchSize: 10, autoQueued: {}, experiments: {}, connected: false,
   addMessage: (m) => {
     if (get().seen[m.id]) return false;           // history replays on reconnect: dedupe by id
     set((s) => ({
