@@ -36,12 +36,12 @@ export default function IdeaInput() {
     ? ["Run another round", "Set explore to 30%", "Send 5 per round", "Why this audience?"] : [];
   return (
     <div className="border-t border-line bg-panel p-3">
-      {err && <p className="mb-2 text-xs text-red-300">{err}</p>}
+      {/* {err && <p className="mb-2 text-xs text-red-300">{err}</p>}
       {chips.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2" aria-label="Quick actions">
           {chips.map((c) => <button key={c} disabled={busy} onClick={() => send(c)} className="rounded-full border border-line px-3 py-1 text-xs text-mute hover:text-text disabled:opacity-40">{c}</button>)}
         </div>
-      )}
+      )} */}
       <div className="flex gap-2">
         <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
           placeholder={placeholder} aria-label={started ? "Message" : "Business idea"}
